@@ -1,24 +1,42 @@
-export GPUS=2
-export BATCH_SIZE_PER_GPU=64
-export MAX_EPOCHS=100
-export LATENT_SIZE=512
-export TRAIN_DATA=32000
-export VAL_DATA=32000
-export LEARNING_RATE='0.02'
-export NUM_SAMPLE=16
-export LOG_NAME='batch-size'
-export VERSION='128x250imgs'
-export LOG_SAMPLE_EVERY=10
-
+GPUS=0,1;
+BATCH_SIZE_PER_GPU=16;
+MAX_EPOCHS=200;
+LATENT_SIZE=512;
+TRAIN_DATA=3200;
+VAL_DATA=3200;
+TEST_DATA=1000;
+NORM_LAYER_TYPE='spectral_norm'
+LEARNING_RATE='0.01';
+NUM_SAMPLE=16;
+LOG_NAME='test';
+VERSION='1209-spectralnorm';
+LOG_SAMPLE_EVERY=2;
+ROOT_DIR='~/data/FFHQ';
+LATENT_DIR='feat_PCA_L5_1024';
+TARGET_DIR='images256x256';
+N_WORKERS=8;
+ \
 python $1 \
+--root_dir ${ROOT_DIR} \
+--latent_dir ${LATENT_DIR} \
+--target_dir ${TARGET_DIR} \
+--num_workers ${N_WORKERS} \
 --gpus ${GPUS} \
---batch_size_per_gpu ${BATCH_SIZE_PER_GPU} \
+--bs_per_gpu ${BATCH_SIZE_PER_GPU} \
 --max_epochs ${MAX_EPOCHS} \
---latent_size ${LATENT_SIZE} \
+--latent_dim ${LATENT_SIZE} \
 --train_size ${TRAIN_DATA} \
 --val_size ${VAL_DATA} \
+--test_size ${TEST_DATA} \
+--norm_type ${NORM_LAYER_TYPE} \
 --lr ${LEARNING_RATE} \
 --num_sample ${NUM_SAMPLE} \
 --log_name ${LOG_NAME} \
 --version ${VERSION} \
---log_sample_every ${LOG_SAMPLE_EVERY}
+--log_sample_every ${LOG_SAMPLE_EVERY} \
+--log_every_n_steps 50 \
+--flush_logs_every_n_steps 500 \
+--sync_batchnorm
+
+# --resume_from_checkpoint
+
