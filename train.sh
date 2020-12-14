@@ -1,16 +1,16 @@
 GPUS='0,1,2,3';
 BATCH_SIZE_PER_GPU=8;
-MAX_EPOCHS=100;
+MAX_EPOCHS=300;
 LATENT_SIZE=1024;
 TRAIN_DATA=28000;
 VAL_DATA=1000;
 TEST_DATA=1000;
 NORM_LAYER_TYPE='spectral_norm';
 LOSSES='ssim,lpips'
-LEARNING_RATE='0.01';
+LEARNING_RATE='0.001';
 NUM_SAMPLE=16;
 LOG_NAME='test';
-VERSION='1214-MDSlatent-specnorm';
+VERSION='1214-MDSlatent-specnorm-ft1';
 LOG_SAMPLE_EVERY=2;
 ROOT_DIR='~/data/FFHQ';
 LATENT_PATH='MDS_feat_30000.npy';
@@ -37,7 +37,8 @@ python $1 \
 --version ${VERSION} \
 --log_sample_every ${LOG_SAMPLE_EVERY} \
 --log_every_n_steps 50 \
---flush_logs_every_n_steps 500
+--flush_logs_every_n_steps 500 \
+--resume_from_checkpoint 'runs/test/1214-MDSlatent-specnorm/checkpoints/epoch=99.ckpt'
 
 # --sync_batchnorm
 # --resume_from_checkpoint
