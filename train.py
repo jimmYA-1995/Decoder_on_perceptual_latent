@@ -45,18 +45,27 @@ class Dataset(torch.utils.data.Dataset):
             
         return latent, target_img
 
-def get_dataloaders(root_dir, latent_dir, target_dir, data_split,
+def get_dataloaders(root_dir, latent_path, target_dir, data_split,
                     num_workers=1, latent_dim=512, bs_per_gpu=32):
     root_dir = Path(root_dir).expanduser() \
                if root_dir.startswith('~') \
                else Path(root_dir)
     img_list = sorted(list((root_dir / target_dir).glob('*/*.png')))
+    img_list = img_list[:30000]
 
     latents = []
-    latent_paths = sorted(list((root_dir / latent_dir).glob("*.pkl")))
-    for p in tqdm(latent_paths):
-        latents.append(pickle.loads(p.read_bytes())[:, : latent_dim])
-    latents = torch.from_numpy(np.concatenate(latents, axis=0))
+    if Path(latent_path).is_dir():
+        latent_paths = sorted(list((root_dir / latent_path).glob("*.pkl")))
+        for p in tqdm(latent_paths):
+            latents.append(pickle.loads(p.read_bytes())[:, :latent_dim])
+        latents = torch.from_numpy(np.concatenate(latents, axis=0))
+    elif Path(latent_path).suffix == ".npy":
+        latents = torch.from_numpy(np.load(root_dir / latent_path)[:, :latent_dim])
+    else:
+        raise NotImplementedError("feat format not supported")
+
+    if latents.dtype == torch.float64:
+        latents = latents.float()
     assert len(img_list) == latents.shape[0], f"#latent & #img are not match {len(img_list)} v.s. {latents.shape[0]}"
     assert sum(data_split) <= len(img_list)
     
@@ -92,7 +101,7 @@ def main(args):
     data_split = [args.train_size, args.val_size, args.test_size]
     
     train_loader, val_loader, test_loader = \
-        get_dataloaders(args.root_dir, args.latent_dir, args.target_dir, data_split,
+        get_dataloaders(args.root_dir, args.latent_path, args.target_dir, data_split,
                         args.num_workers, args.latent_dim, args.bs_per_gpu)
     
     samples = {}
@@ -114,6 +123,7 @@ def main(args):
                              # args.train_size,
                              samples,
                              lr=args.lr,
+                             lr_scheduler=args.lr_scheduler,
                              batch_size=(args.n_gpu*args.bs_per_gpu),
                              norm_type=args.norm_type,
                              latent_dim=args.latent_dim,
@@ -141,7 +151,7 @@ if __name__ == '__main__':
     
     # data
     parser.add_argument('--root_dir', type=str, default='~/data/FFHQ')
-    parser.add_argument('--latent_dir', type=str, default='feat_PCA_L5_1024')
+    parser.add_argument('--latent_path', type=str, default='feat_PCA_L5_1024')
     parser.add_argument('--target_dir', type=str, default='images256x256')
     
     parser.add_argument('--num_workers', type=int, default=3)

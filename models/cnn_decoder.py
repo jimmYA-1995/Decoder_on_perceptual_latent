@@ -21,13 +21,12 @@ class CNNDecoder(nn.Module):
             else:
                 conv = nn.ConvTranspose2d(n_ch[i],n_ch[i+1], kernel_size=4, stride=2, padding=1)
                 
-            if i in [4,5]:
-                if norm_type == 'spectral_norm':
-                    conv_sn = nn.utils.spectral_norm(conv)
-                    conv_blocks.append(conv_sn)
-                elif norm_type == 'batch_norm':
-                    bn = nn.BatchNorm2d(n_ch[i+1])
-                    conv_blocks.extend([conv, bn])
+            if norm_type == 'spectral_norm' and i in [1,2,3,4,5]:
+                conv_sn = nn.utils.spectral_norm(conv)
+                conv_blocks.append(conv_sn)
+            elif norm_type == 'batch_norm' and i in [4,5]:
+                bn = nn.BatchNorm2d(n_ch[i+1])
+                conv_blocks.extend([conv, bn])
             else:
                 conv_blocks.append(conv)
                 

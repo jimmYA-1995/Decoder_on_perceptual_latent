@@ -17,8 +17,9 @@ class LitSystem(LightningModule):
                  decoder: LightningModule,
                  log_sample_every,
                  samples,
-                 losses: List[str] = ['mse'],
+                 losses: str = 'mse',
                  lr: float = 0.2,
+                 lr_scheduler: str = None,
                  batch_size: int = 32,
                  latent_dim: int = 512,
                  train_size: int = 3200,
@@ -34,16 +35,18 @@ class LitSystem(LightningModule):
         # https://github.com/PyTorchLightning/pytorch-lightning/issues/2406
         # https://github.com/PyTorchLightning/pytorch-lightning/issues/4030#issuecomment-708274317
         # register hyparams & metric in the init. and update value later
-        self.save_hyperparameters("train_size", "val_size", "lr", "batch_size", "latent_dim", "norm_type", "val_MSE", "val_SSIM", "val_LPIPS")
+        self.save_hyperparameters("train_size", "val_size", "losses", "lr", "batch_size", "latent_dim", "norm_type", "val_MSE", "val_SSIM", "val_LPIPS")
         self.decoder = decoder
+        self.losses = losses.split(',')
         self.lr = lr
+        self.lr_scheduler = lr_scheduler
         
         # loss
         self.ssim_loss = SSIM()
         self.percept = lpips.PerceptualLoss(
             model='net-lin', net='alex', use_gpu=True
         )
-        for param in percept.model.net.parameters():
+        for param in self.percept.model.net.parameters():
             param.requires_grad = False
         
         # metric & log
@@ -67,7 +70,8 @@ class LitSystem(LightningModule):
         # parser.add_argument('--optim', type=str, default='Adam')
         # parser.add_argument('--beta_1', type=float, default=0.)
         # parser.add_argument('--beta_2', type=float, default=0.99)
-        # parser.add_argument('--lr_scheduler', type=str, default=None, choice=['ReduceLROnPlateau'])
+        parser.add_argument('--losses', type=str, default='mse', help='comma seperated str. e.g. mse,lpips,ssim')
+        parser.add_argument('--lr_scheduler', type=str, default=None, choices=['ReduceLROnPlateau'])
         parser.add_argument('--log_sample_every', type=int, default=10)
         
         return parser
@@ -78,12 +82,11 @@ class LitSystem(LightningModule):
 
     def shared_step(self, batch):
         latent, target_img = batch
-        # latent, target_img = latent.cuda(), target_img.cuda()
         fake_img = self.decoder(latent)
         
         ssim_loss = - self.ssim_loss((target_img + 1) / 2., (fake_img + 1.) / 2.)
         mse_loss = F.mse_loss(target_img, fake_img)
-        lpips_loss = self.percept((target_img + 1) / 2., (fake_img + 1.) / 2.)
+        lpips_loss = self.percept((target_img + 1) / 2., (fake_img + 1.) / 2.).mean()
         mse_val = mse_loss.detach()
         ssim_val = - ssim_loss.detach()
         lpips_val = lpips_loss.detach()
@@ -98,7 +101,9 @@ class LitSystem(LightningModule):
 
     def training_step(self, batch, batch_idx):
         mse_loss, ssim_loss, lpips_loss, mse_val, ssim_val, lpips_val = self.shared_step(batch)
-        total_loss = mse_loss 
+        total_loss = 0
+        for loss_type in self.losses:
+            total_loss += locals()[f'{loss_type}_loss']
 
         self.log('Metric/MSE', mse_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log('Metric/SSIM', ssim_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
@@ -117,7 +122,7 @@ class LitSystem(LightningModule):
         mse_loss, ssim_loss, lpips_loss, mse_val, ssim_val, lpips_val = self.shared_step(batch)
         self.log('Metric/Val-MSE', mse_val, on_epoch=True, prog_bar=True, logger=True)
         self.log('Metric/Val-SSIM', ssim_val, on_epoch=True, prog_bar=True, logger=True)
-        self.log('Metric/LPIPS', lpips_val, on_epoch=True, prog_bar=True, logger=True)
+        self.log('Metric/Val-LPIPS', lpips_val, on_epoch=True, prog_bar=True, logger=True)
         
         return {'mse': mse_val, 'ssim': ssim_val, 'lpips': lpips_val}
     
@@ -141,21 +146,26 @@ class LitSystem(LightningModule):
         
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, betas=(0, 0.99))
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer,
-            mode='min',
-            patience=1000,
-            cooldown=200,
-            min_lr=1e-4,
-            verbose=True
-        )
-        
-        return {
-            'optimizer': optimizer,
-            'lr_scheduler': scheduler,
-            'monitor': 'Metric/MSE'
-        }
-        return optimizer, scheduler
+        scheduler = None
+        if self.lr_scheduler is not None:
+            if self.lr_scheduler == 'ReduceLROnPlateau':
+                scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                    optimizer,
+                    mode='min',
+                    patience=1000,
+                    cooldown=200,
+                    min_lr=1e-4,
+                    verbose=True
+                )
+            else:
+                raise NotImplementedError("Learning rate scheduler type not supported yet")
+
+            return {
+                'optimizer': optimizer,
+                'lr_scheduler': scheduler,
+                'monitor': 'Metric/MSE'
+            }
+        return optimizer
         
     def log_sample_images(self, mode='train'):
         sample_fake_imgs = self(getattr(self, f'smpl_latent_{mode}'))
