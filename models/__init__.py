@@ -84,7 +84,7 @@ class LitSystem(LightningModule):
     def forward(self, latent):
         return self.decoder(latent)
 
-    def shared_step(self, batch, reg=True):
+    def shared_step(self, batch, reg=False):
         latent, target_img = batch
         tri_neq_reg, tri_neq_val = None, None
             
@@ -92,7 +92,6 @@ class LitSystem(LightningModule):
         b, c, h, w = target_img.shape        
         
         fake_imgs_e = self.decoder(latent)
-        fake_imgs_l, fake_imgs_r = fake_imgs_e.view(2, b//2, c, h, w)
         ssim_loss = - self.ssim_loss((target_img + 1) / 2., (fake_imgs_e + 1.) / 2.)
         mse_loss = F.mse_loss(target_img, fake_imgs_e)
         lpips_loss = self.percept((target_img + 1) / 2., (fake_imgs_e + 1.) / 2.).mean()
@@ -102,7 +101,8 @@ class LitSystem(LightningModule):
         
         if reg:
             latent_l, latent_r = latent.view(2, b//2, nz)
-            target_img_l, target_img_r = target_img.view(2, b//2, c, h, w)
+            fake_imgs_l, fake_imgs_r = fake_imgs_e.view(2, b//2, c, h, w)
+            # target_img_l, target_img_r = target_img.view(2, b//2, c, h, w)
             alpha = torch.rand((b//2,1)).type_as(latent)
             interpolated_latents = latent_l * alpha + latent_r * (torch.ones_like(alpha) - alpha)
             fake_imgs_c = self.decoder(interpolated_latents)
@@ -123,7 +123,8 @@ class LitSystem(LightningModule):
         pass
 
     def training_step(self, batch, batch_idx):
-        use_reg = True if self.current_epoch > 0 else False
+        use_reg = False
+        # use_reg = True if self.current_epoch > 10 and self.current_epoch % 4 == 0 else False
         mse_loss, ssim_loss, lpips_loss, tri_neq_reg, mse_val, ssim_val, lpips_val, tri_neq_val = \
             self.shared_step(batch, reg=use_reg)
         total_loss = 0
@@ -135,7 +136,7 @@ class LitSystem(LightningModule):
         self.log('Metric/LPIPS', lpips_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         
         if use_reg:
-            total_loss = total_loss + tri_neq_reg
+            total_loss = total_loss + 10 * tri_neq_reg
             self.log('Metric/tri-neq', tri_neq_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         
         return total_loss
