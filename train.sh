@@ -7,10 +7,10 @@ VAL_DATA=1000;
 TEST_DATA=1000;
 NORM_LAYER_TYPE='spectral_norm';
 LOSSES='ssim,lpips'
-LEARNING_RATE='0.001';
+LEARNING_RATE='0.01';
 NUM_SAMPLE=16;
 LOG_NAME='test';
-VERSION='1214-MDSlatent-specnorm-ft1';
+VERSION='1215-MDSlatent-tri-neq-1';
 LOG_SAMPLE_EVERY=2;
 ROOT_DIR='~/data/FFHQ';
 LATENT_PATH='MDS_feat_30000.npy';
@@ -37,8 +37,7 @@ python $1 \
 --version ${VERSION} \
 --log_sample_every ${LOG_SAMPLE_EVERY} \
 --log_every_n_steps 50 \
---flush_logs_every_n_steps 500 \
---resume_from_checkpoint 'runs/test/1214-MDSlatent-specnorm/checkpoints/epoch=99.ckpt'
+--flush_logs_every_n_steps 500 
 
 # --sync_batchnorm
 # --resume_from_checkpoint

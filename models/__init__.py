@@ -8,7 +8,8 @@ import torchvision
 from pytorch_lightning import LightningModule
 
 from pytorch_ssim import SSIM, ssim
-import lpips
+# import lpips
+from lpips_pytorch import LPIPS
 from .cnn_decoder import CNNDecoder
 
 
@@ -27,7 +28,8 @@ class LitSystem(LightningModule):
                  val_size: int = 3200,
                  val_MSE: float = -1.,
                  val_SSIM: float = -1.,
-                 val_LPIPS: float = -1.):
+                 val_LPIPS: float = -1.,
+                 val_tri_neq: float = -1):
         
         super(LitSystem, self).__init__()
         
@@ -35,7 +37,7 @@ class LitSystem(LightningModule):
         # https://github.com/PyTorchLightning/pytorch-lightning/issues/2406
         # https://github.com/PyTorchLightning/pytorch-lightning/issues/4030#issuecomment-708274317
         # register hyparams & metric in the init. and update value later
-        self.save_hyperparameters("train_size", "val_size", "losses", "lr", "batch_size", "latent_dim", "norm_type", "val_MSE", "val_SSIM", "val_LPIPS")
+        self.save_hyperparameters("train_size", "val_size", "losses", "lr", "batch_size", "latent_dim", "norm_type", "val_MSE", "val_SSIM", "val_LPIPS", "val_tri_neq")
         self.decoder = decoder
         self.losses = losses.split(',')
         self.lr = lr
@@ -43,16 +45,18 @@ class LitSystem(LightningModule):
         
         # loss
         self.ssim_loss = SSIM()
-        self.percept = lpips.PerceptualLoss(
-            model='net-lin', net='alex', use_gpu=True
+        self.percept = LPIPS(
+            net_type='alex',
+            version='0.1'
         )
-        for param in self.percept.model.net.parameters():
+        for param in self.percept.parameters():
             param.requires_grad = False
         
         # metric & log
         self.best_mse = 4.
         self.best_ssim = 0.
         self.best_lpips = float("inf")
+        self.best_tri_neq = float("inf")
         self.log_sample_every = log_sample_every
         
         # sample
@@ -80,27 +84,48 @@ class LitSystem(LightningModule):
     def forward(self, latent):
         return self.decoder(latent)
 
-    def shared_step(self, batch):
+    def shared_step(self, batch, reg=True):
         latent, target_img = batch
-        fake_img = self.decoder(latent)
+        tri_neq_reg, tri_neq_val = None, None
+            
+        _, nz = latent.shape
+        b, c, h, w = target_img.shape        
         
-        ssim_loss = - self.ssim_loss((target_img + 1) / 2., (fake_img + 1.) / 2.)
-        mse_loss = F.mse_loss(target_img, fake_img)
-        lpips_loss = self.percept((target_img + 1) / 2., (fake_img + 1.) / 2.).mean()
+        fake_imgs_e = self.decoder(latent)
+        fake_imgs_l, fake_imgs_r = fake_imgs_e.view(2, b//2, c, h, w)
+        ssim_loss = - self.ssim_loss((target_img + 1) / 2., (fake_imgs_e + 1.) / 2.)
+        mse_loss = F.mse_loss(target_img, fake_imgs_e)
+        lpips_loss = self.percept((target_img + 1) / 2., (fake_imgs_e + 1.) / 2.).mean()
         mse_val = mse_loss.detach()
         ssim_val = - ssim_loss.detach()
         lpips_val = lpips_loss.detach()
         
-        return mse_loss, ssim_loss, lpips_loss, mse_val, ssim_val, lpips_val
+        if reg:
+            latent_l, latent_r = latent.view(2, b//2, nz)
+            target_img_l, target_img_r = target_img.view(2, b//2, c, h, w)
+            alpha = torch.rand((b//2,1)).type_as(latent)
+            interpolated_latents = latent_l * alpha + latent_r * (torch.ones_like(alpha) - alpha)
+            fake_imgs_c = self.decoder(interpolated_latents)
+
+            lpips_lr = self.percept((fake_imgs_l + 1) / 2., (fake_imgs_r + 1.) / 2.).squeeze()
+            lpips_cl = self.percept((fake_imgs_c + 1) / 2., (fake_imgs_l + 1.) / 2.).squeeze()
+            lpips_cr = self.percept((fake_imgs_c + 1) / 2., (fake_imgs_r + 1.) / 2.).squeeze()
+
+            assert (lpips_lr > 0).all() and (lpips_cl > 0).all() and (lpips_cr > 0).all(), "lpips small than zero"
+            tri_neq_reg = torch.max(lpips_cl + lpips_cr - lpips_lr, torch.zeros_like(lpips_lr))
+            tri_neq_reg = tri_neq_reg.mean()
+
+            tri_neq_val = tri_neq_reg.detach()
+        
+        return mse_loss, ssim_loss, lpips_loss, tri_neq_reg, mse_val, ssim_val, lpips_val, tri_neq_val
 
     def on_train_start(self):
         pass
-#         print("hyperparams: ", self.hparams)
-#         self.logger.log_hyperparams({'latent_dim': self.lr})
-#         self.logger.log_hyperparams([{'bs/gpu': bs_per_gpu}, 'something'])
 
     def training_step(self, batch, batch_idx):
-        mse_loss, ssim_loss, lpips_loss, mse_val, ssim_val, lpips_val = self.shared_step(batch)
+        use_reg = True if self.current_epoch > 0 else False
+        mse_loss, ssim_loss, lpips_loss, tri_neq_reg, mse_val, ssim_val, lpips_val, tri_neq_val = \
+            self.shared_step(batch, reg=use_reg)
         total_loss = 0
         for loss_type in self.losses:
             total_loss += locals()[f'{loss_type}_loss']
@@ -108,6 +133,10 @@ class LitSystem(LightningModule):
         self.log('Metric/MSE', mse_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log('Metric/SSIM', ssim_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log('Metric/LPIPS', lpips_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        
+        if use_reg:
+            total_loss = total_loss + tri_neq_reg
+            self.log('Metric/tri-neq', tri_neq_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         
         return total_loss
     
@@ -119,29 +148,34 @@ class LitSystem(LightningModule):
             self.log_interpolated_images()
             
     def validation_step(self, batch, batch_idx):
-        mse_loss, ssim_loss, lpips_loss, mse_val, ssim_val, lpips_val = self.shared_step(batch)
+        mse_loss, ssim_loss, lpips_loss, tri_neq_reg, mse_val, ssim_val, lpips_val, tri_neq_val = self.shared_step(batch, reg=True)
         self.log('Metric/Val-MSE', mse_val, on_epoch=True, prog_bar=True, logger=True)
         self.log('Metric/Val-SSIM', ssim_val, on_epoch=True, prog_bar=True, logger=True)
         self.log('Metric/Val-LPIPS', lpips_val, on_epoch=True, prog_bar=True, logger=True)
+        self.log('Metric/Val-tri-neq', tri_neq_val, on_epoch=True, prog_bar=True, logger=True)
         
-        return {'mse': mse_val, 'ssim': ssim_val, 'lpips': lpips_val}
+        return {'mse': mse_val, 'ssim': ssim_val, 'lpips': lpips_val, 'tri_neq': tri_neq_val}
     
     def validation_epoch_end(self, validation_step_outputs):
         epoch_mse = validation_step_outputs[0]['mse'].mean()
         epoch_ssim = validation_step_outputs[0]['ssim'].mean()
         epoch_lpips = validation_step_outputs[0]['lpips'].mean()
+        epoch_tri_neq = validation_step_outputs[0]['tri_neq'].mean()
         if epoch_mse < self.best_mse:
             self.best_mse = epoch_mse
         if epoch_ssim > self.best_ssim:
             self.best_ssim = epoch_ssim
         if epoch_lpips < self.best_lpips:
             self.best_lpips = epoch_lpips
+        if epoch_tri_neq < self.best_tri_neq:
+            self.best_tri_neq = epoch_tri_neq
         
         self.logger.log_hyperparams(params=self.hparams,
                                     metrics={
                                         'val_MSE': self.best_mse,
                                         'val_SSIM': self.best_ssim,
-                                        'val_LPIPS': self.best_lpips
+                                        'val_LPIPS': self.best_lpips,
+                                        'val_tri_neq': self.best_tri_neq
                                     })
         
     def configure_optimizers(self):
