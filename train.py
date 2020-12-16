@@ -130,12 +130,13 @@ def main(args):
                              train_size=args.train_size,
                              val_size=args.val_size)
     tb_logger = pl_loggers.TensorBoardLogger('runs', name=args.log_name, version=args.version, default_hp_metric=False)
-    trainer = Trainer.from_argparse_args(
-        args,
-#         resume_from_checkpoint='',
-        logger=tb_logger,
-        distributed_backend='ddp')
+    kwargs = dict(logger=tb_logger, distributed_backend='ddp')
+    if not args.resume_from_checkpoint:
+        kwargs.update({
+            'resume_from_checkpoint': args.resume_from_checkpoint
+        })
     
+    trainer = Trainer.from_argparse_args(args, **kwargs)
     trainer.fit(train_system, train_loader, val_loader)
 
 if __name__ == '__main__':
@@ -148,12 +149,12 @@ if __name__ == '__main__':
     parser.add_argument('--num_sample', type=int, default=32)
     parser.add_argument('--log_name', type=str, default='default')
     parser.add_argument('--version', type=str, default=None)
-    
+
     # data
     parser.add_argument('--root_dir', type=str, default='~/data/FFHQ')
     parser.add_argument('--latent_path', type=str, default='feat_PCA_L5_1024')
     parser.add_argument('--target_dir', type=str, default='images256x256')
-    
+
     parser.add_argument('--num_workers', type=int, default=3)
     parser.add_argument('--train_size', type=int, default=3200)
     parser.add_argument('--val_size', type=int, default=1000)
