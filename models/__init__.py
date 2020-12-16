@@ -8,7 +8,7 @@ import torchvision
 from pytorch_lightning import LightningModule
 
 from pytorch_ssim import SSIM, ssim
-# import lpips
+import lpips
 from lpips_pytorch import LPIPS
 from .cnn_decoder import CNNDecoder
 
@@ -51,6 +51,11 @@ class LitSystem(LightningModule):
         )
         for param in self.percept.parameters():
             param.requires_grad = False
+        #self.percept = lpips.PerceptualLoss(
+        #        model='net-lin', net='alex', use_gpu=True
+        #    )
+        #for param in self.percept.model.net.parameters():
+        #    param.requires_grad = False
         
         # metric & log
         self.best_mse = 4.
@@ -80,7 +85,6 @@ class LitSystem(LightningModule):
         
         return parser
         
-    
     def forward(self, latent):
         return self.decoder(latent)
 
@@ -107,9 +111,9 @@ class LitSystem(LightningModule):
             interpolated_latents = latent_l * alpha + latent_r * (torch.ones_like(alpha) - alpha)
             fake_imgs_c = self.decoder(interpolated_latents)
 
-            lpips_lr = self.percept((fake_imgs_l + 1) / 2., (fake_imgs_r + 1.) / 2.).squeeze()
-            lpips_cl = self.percept((fake_imgs_c + 1) / 2., (fake_imgs_l + 1.) / 2.).squeeze()
-            lpips_cr = self.percept((fake_imgs_c + 1) / 2., (fake_imgs_r + 1.) / 2.).squeeze()
+            lpips_lr = self.percept((fake_imgs_l + 1) / 2., (fake_imgs_r + 1.) / 2.).mean()
+            lpips_cl = self.percept((fake_imgs_c + 1) / 2., (fake_imgs_l + 1.) / 2.).mean()
+            lpips_cr = self.percept((fake_imgs_c + 1) / 2., (fake_imgs_r + 1.) / 2.).mean()
 
             assert (lpips_lr > 0).all() and (lpips_cl > 0).all() and (lpips_cr > 0).all(), "lpips small than zero"
             tri_neq_reg = torch.max(lpips_cl + lpips_cr - lpips_lr, torch.zeros_like(lpips_lr))
@@ -123,11 +127,11 @@ class LitSystem(LightningModule):
         pass
 
     def training_step(self, batch, batch_idx):
-        use_reg = False
-        # use_reg = True if self.current_epoch > 10 and self.current_epoch % 4 == 0 else False
+        use_reg = True if self.current_epoch > 3 else False
         mse_loss, ssim_loss, lpips_loss, tri_neq_reg, mse_val, ssim_val, lpips_val, tri_neq_val = \
             self.shared_step(batch, reg=use_reg)
-        total_loss = 0
+        
+        total_loss = 0.
         for loss_type in self.losses:
             total_loss += locals()[f'{loss_type}_loss']
 
@@ -136,7 +140,7 @@ class LitSystem(LightningModule):
         self.log('Metric/LPIPS', lpips_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         
         if use_reg:
-            total_loss = total_loss + 10 * tri_neq_reg
+            total_loss = total_loss + tri_neq_reg
             self.log('Metric/tri-neq', tri_neq_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         
         return total_loss
@@ -158,10 +162,10 @@ class LitSystem(LightningModule):
         return {'mse': mse_val, 'ssim': ssim_val, 'lpips': lpips_val, 'tri_neq': tri_neq_val}
     
     def validation_epoch_end(self, validation_step_outputs):
-        epoch_mse = validation_step_outputs[0]['mse'].mean()
-        epoch_ssim = validation_step_outputs[0]['ssim'].mean()
-        epoch_lpips = validation_step_outputs[0]['lpips'].mean()
-        epoch_tri_neq = validation_step_outputs[0]['tri_neq'].mean()
+        epoch_mse = torch.cat([x['mse'].unsqueeze(0) for x in validation_step_outputs], dim=0).mean()
+        epoch_ssim = torch.cat([x['ssim'].unsqueeze(0) for x in validation_step_outputs], dim=0).mean()
+        epoch_lpips = torch.cat([x['lpips'].unsqueeze(0) for x in validation_step_outputs], dim=0).mean()
+        epoch_tri_neq = torch.cat([x['tri_neq'].unsqueeze(0) for x in validation_step_outputs], dim=0).mean()
         if epoch_mse < self.best_mse:
             self.best_mse = epoch_mse
         if epoch_ssim > self.best_ssim:
