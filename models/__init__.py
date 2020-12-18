@@ -80,7 +80,7 @@ class LitSystem(LightningModule):
         # parser.add_argument('--beta_1', type=float, default=0.)
         # parser.add_argument('--beta_2', type=float, default=0.99)
         parser.add_argument('--losses', type=str, default='mse', help='comma seperated str. e.g. mse,lpips,ssim')
-        parser.add_argument('--lr_scheduler', type=str, default=None, choices=['ReduceLROnPlateau'])
+        parser.add_argument('--lr_scheduler', type=str, choices=['None', 'ReduceLROnPlateau', 'MultiStepLR'])
         parser.add_argument('--log_sample_every', type=int, default=10)
         
         return parser
@@ -127,7 +127,8 @@ class LitSystem(LightningModule):
         pass
 
     def training_step(self, batch, batch_idx):
-        use_reg = True if self.current_epoch > 3 else False
+        use_reg = False
+        # use_reg = True if self.current_epoch > 3 else False
         mse_loss, ssim_loss, lpips_loss, tri_neq_reg, mse_val, ssim_val, lpips_val, tri_neq_val = \
             self.shared_step(batch, reg=use_reg)
         
@@ -153,40 +154,40 @@ class LitSystem(LightningModule):
             self.log_interpolated_images()
             
     def validation_step(self, batch, batch_idx):
-        mse_loss, ssim_loss, lpips_loss, tri_neq_reg, mse_val, ssim_val, lpips_val, tri_neq_val = self.shared_step(batch, reg=True)
+        mse_loss, ssim_loss, lpips_loss, tri_neq_reg, mse_val, ssim_val, lpips_val, tri_neq_val = self.shared_step(batch, reg=False)
         self.log('Metric/Val-MSE', mse_val, on_epoch=True, prog_bar=True, logger=True)
         self.log('Metric/Val-SSIM', ssim_val, on_epoch=True, prog_bar=True, logger=True)
         self.log('Metric/Val-LPIPS', lpips_val, on_epoch=True, prog_bar=True, logger=True)
-        self.log('Metric/Val-tri-neq', tri_neq_val, on_epoch=True, prog_bar=True, logger=True)
+        # self.log('Metric/Val-tri-neq', tri_neq_val, on_epoch=True, prog_bar=True, logger=True)
         
-        return {'mse': mse_val, 'ssim': ssim_val, 'lpips': lpips_val, 'tri_neq': tri_neq_val}
+        return {'mse': mse_val, 'ssim': ssim_val, 'lpips': lpips_val} #, 'tri_neq': tri_neq_val}
     
     def validation_epoch_end(self, validation_step_outputs):
         epoch_mse = torch.cat([x['mse'].unsqueeze(0) for x in validation_step_outputs], dim=0).mean()
         epoch_ssim = torch.cat([x['ssim'].unsqueeze(0) for x in validation_step_outputs], dim=0).mean()
         epoch_lpips = torch.cat([x['lpips'].unsqueeze(0) for x in validation_step_outputs], dim=0).mean()
-        epoch_tri_neq = torch.cat([x['tri_neq'].unsqueeze(0) for x in validation_step_outputs], dim=0).mean()
+        # epoch_tri_neq = torch.cat([x['tri_neq'].unsqueeze(0) for x in validation_step_outputs], dim=0).mean()
         if epoch_mse < self.best_mse:
             self.best_mse = epoch_mse
         if epoch_ssim > self.best_ssim:
             self.best_ssim = epoch_ssim
         if epoch_lpips < self.best_lpips:
             self.best_lpips = epoch_lpips
-        if epoch_tri_neq < self.best_tri_neq:
-            self.best_tri_neq = epoch_tri_neq
+        #if epoch_tri_neq < self.best_tri_neq:
+        #    self.best_tri_neq = epoch_tri_neq
         
         self.logger.log_hyperparams(params=self.hparams,
                                     metrics={
                                         'val_MSE': self.best_mse,
                                         'val_SSIM': self.best_ssim,
                                         'val_LPIPS': self.best_lpips,
-                                        'val_tri_neq': self.best_tri_neq
+                                        # 'val_tri_neq': self.best_tri_neq
                                     })
         
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, betas=(0, 0.99))
         scheduler = None
-        if self.lr_scheduler is not None:
+        if self.lr_scheduler != 'None':
             if self.lr_scheduler == 'ReduceLROnPlateau':
                 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
                     optimizer,
@@ -196,6 +197,8 @@ class LitSystem(LightningModule):
                     min_lr=1e-4,
                     verbose=True
                 )
+            elif self.lr_scheduler == 'MultiStepLR':
+                scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[30,110,140], gamma=0.1)
             else:
                 raise NotImplementedError("Learning rate scheduler type not supported yet")
 
