@@ -8,7 +8,6 @@ import torchvision
 from pytorch_lightning import LightningModule
 
 from pytorch_ssim import SSIM, ssim
-import lpips
 from lpips_pytorch import LPIPS
 from .cnn_decoder import CNNDecoder
 
@@ -45,17 +44,14 @@ class LitSystem(LightningModule):
         
         # loss
         self.ssim_loss = SSIM()
+        # https://github.com/S-aiueo32/lpips-pytorch
+        # not using official repo. because we can't use sub-DataParallel model in pytorh-lightning
         self.percept = LPIPS(
             net_type='alex',
             version='0.1'
         )
         for param in self.percept.parameters():
             param.requires_grad = False
-        #self.percept = lpips.PerceptualLoss(
-        #        model='net-lin', net='alex', use_gpu=True
-        #    )
-        #for param in self.percept.model.net.parameters():
-        #    param.requires_grad = False
         
         # metric & log
         self.best_mse = 4.
