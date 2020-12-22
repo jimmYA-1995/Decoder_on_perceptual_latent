@@ -51,7 +51,6 @@ def get_dataloaders(root_dir, latent_path, target_dir, data_split,
                if root_dir.startswith('~') \
                else Path(root_dir)
     img_list = sorted(list((root_dir / target_dir).glob('*/*.png')))
-    img_list = img_list[:30000]
 
     latents = []
     if Path(latent_path).is_dir():
@@ -66,7 +65,7 @@ def get_dataloaders(root_dir, latent_path, target_dir, data_split,
 
     if latents.dtype == torch.float64:
         latents = latents.float()
-    assert len(img_list) == latents.shape[0], f"#latent & #img are not match {len(img_list)} v.s. {latents.shape[0]}"
+    assert len(img_list) == latents.shape[0], f"#latent & #img are not match {latents.shape[0]} v.s. {len(img_list)}"
     assert sum(data_split) <= len(img_list)
     
     trf = [
