@@ -13,6 +13,7 @@ import torch.nn.functional as F
 import torchvision
 from tqdm import tqdm
 from PIL import Image
+from skimage.transform import resize
 from torch.utils import data
 from torch.utils.data import DataLoader
 from torchvision import transforms
@@ -25,21 +26,25 @@ from pytorch_lightning import loggers as pl_loggers
 
 from models import LitSystem, CNNDecoder
 
-
-
+IMG_SIZE=512
 class Dataset(torch.utils.data.Dataset):
     def __init__(self, latents, img_paths, transforms=None):
         assert len(img_paths) == latents.shape[0]
         self.latents = latents
         self.img_paths = img_paths
         self.transforms = transforms
+        self.c = IMG_SIZE//8
 
     def __len__(self):
         return self.latents.shape[0]
     
     def __getitem__(self, index):
+        c = self.c
         latent = self.latents[index]
-        target_img = io.imread(self.img_paths[index])
+        img = io.imread(self.img_paths[index])
+        resize_img = resize(img, (IMG_SIZE, IMG_SIZE), anti_aliasing=True)
+        target_img = resize_img[c*3 : c*7, c*2 : c*6, :]
+        
         if self.transforms:
             target_img = self.transforms(target_img)
             
