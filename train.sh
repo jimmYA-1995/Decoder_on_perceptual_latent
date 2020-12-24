@@ -1,21 +1,21 @@
 GPUS='0,1';
 BATCH_SIZE_PER_GPU=16;
 MAX_EPOCHS=200;
-LATENT_SIZE=1024;
-TRAIN_DATA=27000;
-VAL_DATA=2000;
+LATENT_SIZE=512;
+TRAIN_DATA=32000;
+VAL_DATA=3000;
 TEST_DATA=1000;
-NORM_LAYER_TYPE='batch_norm';
+NORM_LAYER_TYPE='spectral_norm';
 LOSSES='ssim,lpips';
-LEARNING_RATE='0.01';
-LR_SCHEDULER='MultiStepLR';
+LEARNING_RATE='0.00001';
+LR_SCHEDULER='None';
 NUM_SAMPLE=16;
-LOG_NAME='test'; # lpips-tri-neq
-VERSION='lr1e-2_mutltistepLR80-135-150'; # mse-a1-fr1-after1-2
+LOG_NAME='small_lr'; # lpips-tri-neq
+VERSION='1e-5'; # mse-a1-fr1-after1-2
 LOG_SAMPLE_EVERY=2;
 ROOT_DIR='~/data/FFHQ';
-LATENT_PATH='MDS_feat_30000.npy';
-TARGET_DIR='images256x256';
+LATENT_PATH='FFHQ_MDS_feat-cropface_70000.npy'; # 'FFHQ_MDS_feat-cropface_70000.npy';
+TARGET_DIR='images256x256-cropface';
 N_WORKERS=8;
 LOG_EVERY_N_STEPS=50;
 FLUSH_LOGS_EVERY_N_STEPS=500;
@@ -41,8 +41,8 @@ python $1 \
 --version ${VERSION} \
 --log_sample_every ${LOG_SAMPLE_EVERY} \
 --log_every_n_steps ${LOG_EVERY_N_STEPS} \
---flush_logs_every_n_steps ${FLUSH_LOGS_EVERY_N_STEPS} \
---sync_batchnorm
+--flush_logs_every_n_steps ${FLUSH_LOGS_EVERY_N_STEPS}
 
+# --sync_batchnorm
 # --resume_from_checkpoint
 
