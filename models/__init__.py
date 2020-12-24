@@ -109,9 +109,9 @@ class LitSystem(LightningModule):
             interpolated_latents = latent_l * alpha + latent_r * (torch.ones_like(alpha) - alpha)
             fake_imgs_c = self.decoder(interpolated_latents)
 
-            lpips_lr = self.percept((fake_imgs_l + 1) / 2., (fake_imgs_r + 1.) / 2.).mean()
-            lpips_cl = self.percept((fake_imgs_c + 1) / 2., (fake_imgs_l + 1.) / 2.).mean()
-            lpips_cr = self.percept((fake_imgs_c + 1) / 2., (fake_imgs_r + 1.) / 2.).mean()
+            lpips_lr = self.percept((fake_imgs_l + 1) / 2., (fake_imgs_r + 1.) / 2.)
+            lpips_cl = self.percept((fake_imgs_c + 1) / 2., (fake_imgs_l + 1.) / 2.)
+            lpips_cr = self.percept((fake_imgs_c + 1) / 2., (fake_imgs_r + 1.) / 2.)
 
             assert (lpips_cl > 0).all() and (lpips_cr > 0).all(), "lpips small than zero"
             tri_neq_reg = (lpips_cl + lpips_cr) / lpips_lr - 1.
