@@ -113,7 +113,7 @@ class LitSystem(LightningModule):
             lpips_cl = self.percept((fake_imgs_c + 1) / 2., (fake_imgs_l + 1.) / 2.)
             lpips_cr = self.percept((fake_imgs_c + 1) / 2., (fake_imgs_r + 1.) / 2.)
 
-            assert (lpips_cl > 0).all() and (lpips_cr > 0).all(), "lpips small than zero"
+            assert (lpips_cl >= 0).all() and (lpips_cr >= 0).all(), f"lpips small than zero. cl: {lpips_cl.min()}, cr: {lpips_cr.min()}"
             tri_neq_reg = (lpips_cl + lpips_cr) / lpips_lr - 1.
             tri_neq_reg = tri_neq_reg.mean()
 
@@ -182,7 +182,7 @@ class LitSystem(LightningModule):
                                     })
         
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, betas=(0, 0.99))
+        optimizer = torch.optim.Adam(self.decoder.parameters(), lr=self.lr, betas=(0, 0.99))
         scheduler = None
         if self.lr_scheduler != 'None':
             if self.lr_scheduler == 'ReduceLROnPlateau':
