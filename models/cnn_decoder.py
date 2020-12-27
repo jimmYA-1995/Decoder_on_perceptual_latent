@@ -2,14 +2,17 @@ import torch.nn as nn
 
 class CNNDecoder(nn.Module):
     def __init__(self,
-                 latent_dim: int = 512,
+                 latents,
                  norm_type: str = 'batch_norm',
         ):
         super(CNNDecoder, self).__init__()
 #         self.save_hyperparameters()
+        
+        self.embed = nn.Embedding.from_pretrained(latents, freeze=False)
     
         n_ch = [256, 256, 128, 128, 64, 64, 3]
         conv_blocks = []
+        latent_dim = latents.shape[1]
         self.linear1 = nn.Linear(latent_dim, 4096)
         self.linear2 = nn.Linear(4096, 8*8*256)
         self.act = nn.LeakyReLU(0.2)
@@ -34,7 +37,16 @@ class CNNDecoder(nn.Module):
         self.conv_blocks = nn.ModuleList(conv_blocks)
         self.out = nn.Tanh()
         
-    def forward(self, latent):
+    def forward(self, inputs):
+        if inputs.ndim == 1:
+            # indices
+            latent = self.embed(inputs)
+        elif inputs.ndim == 2:
+            # latents
+            latent = inputs
+        else:
+            raise ValueError("unknown input dimension")
+            
         x = self.linear1(latent)
         x = self.act(x)
         x = self.linear2(x).view(-1,256,8,8)

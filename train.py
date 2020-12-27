@@ -25,24 +25,29 @@ from pytorch_lightning import loggers as pl_loggers
 
 from models import LitSystem, CNNDecoder
 
-
+    
 class Dataset(torch.utils.data.Dataset):
-    def __init__(self, latents, img_paths, transforms=None):
+    def __init__(self, latents, img_paths, transforms=None, return_indices=False):
         assert len(img_paths) == latents.shape[0]
         self.latents = latents
+        self.latent_indices = torch.arange(len(latents), dtype=torch.long)
         self.img_paths = img_paths
         self.transforms = transforms
+        self.return_indices = return_indices
 
     def __len__(self):
         return self.latents.shape[0]
     
     def __getitem__(self, index):
         latent = self.latents[index]
+        latent_indices = self.latent_indices[index]
         target_img = io.imread(self.img_paths[index])
         
         if self.transforms:
             target_img = self.transforms(target_img)
-            
+        
+        if self.return_indices:
+            return latent_indices, latent, target_img
         return latent, target_img
 
 def get_dataloaders(root_dir, latent_path, target_dir, data_split,
@@ -79,10 +84,13 @@ def get_dataloaders(root_dir, latent_path, target_dir, data_split,
     split_names = ['train', 'val', 'test']
     for split, n_records in zip(split_names, data_split):
         l = latents[idx:idx+n_records]
+        if split == 'train':
+            train_latents = l.clone()
+                                    
         img_paths = img_list[idx:idx+n_records]
         idx += n_records
         
-        dataset = Dataset(l, img_paths, transforms=trfs)
+        dataset = Dataset(l, img_paths, transforms=trfs, return_indices=(split == 'train'))
         dataloaders.append(
             DataLoader(
                 dataset,
@@ -93,18 +101,18 @@ def get_dataloaders(root_dir, latent_path, target_dir, data_split,
             )
         )
     
-    return dataloaders
+    return dataloaders, train_latents
 
 
 def main(args):
     data_split = [args.train_size, args.val_size, args.test_size]
     
-    train_loader, val_loader, test_loader = \
+    (train_loader, val_loader, test_loader), train_latents = \
         get_dataloaders(args.root_dir, args.latent_path, args.target_dir, data_split,
                         args.num_workers, args.latent_dim, args.bs_per_gpu)
     
     samples = {}
-    latent, target_img = next(iter(train_loader))
+    _, latent, target_img = next(iter(train_loader)) # not keep indices
     samples['train'] = {
         'latents': latent[:args.num_sample],
         'targets': target_img[:args.num_sample]
@@ -115,7 +123,7 @@ def main(args):
         'targets': target_img[:args.num_sample]
     }
     
-    model = CNNDecoder(args.latent_dim, args.norm_type)
+    model = CNNDecoder(train_latents, args.norm_type)
     train_system = LitSystem(model,
                              args.log_sample_every,
                              # args.bs_per_gpu,

@@ -85,8 +85,7 @@ class LitSystem(LightningModule):
     def forward(self, latent):
         return self.decoder(latent)
 
-    def shared_step(self, batch, reg=False):
-        latent, target_img = batch
+    def shared_step(self, latent, target_img, reg=False):
         tri_neq_reg, tri_neq_val = None, None
 
         b, c, h, w = target_img.shape        
@@ -126,9 +125,12 @@ class LitSystem(LightningModule):
         pass
 
     def training_step(self, batch, batch_idx):
+        # using latent indices on training
+        _, indices, target_img = batch
+        
         use_reg = False #  if self.current_epoch > 3 else False
         mse_loss, ssim_loss, lpips_loss, tri_neq_reg, mse_val, ssim_val, lpips_val, tri_neq_val = \
-            self.shared_step(batch, reg=use_reg)
+            self.shared_step(indices, target_img, reg=use_reg)
         
         total_loss = 0.
         for loss_type in self.losses:
@@ -152,7 +154,8 @@ class LitSystem(LightningModule):
             self.log_interpolated_images()
             
     def validation_step(self, batch, batch_idx):
-        mse_loss, ssim_loss, lpips_loss, tri_neq_reg, mse_val, ssim_val, lpips_val, tri_neq_val = self.shared_step(batch, reg=False)
+        latent, target_img = batch
+        mse_loss, ssim_loss, lpips_loss, tri_neq_reg, mse_val, ssim_val, lpips_val, tri_neq_val = self.shared_step(latent, target_img, reg=False)
         self.log('Metric/Val-MSE', mse_val, on_epoch=True, prog_bar=True, logger=True)
         self.log('Metric/Val-SSIM', ssim_val, on_epoch=True, prog_bar=True, logger=True)
         self.log('Metric/Val-LPIPS', lpips_val, on_epoch=True, prog_bar=True, logger=True)
