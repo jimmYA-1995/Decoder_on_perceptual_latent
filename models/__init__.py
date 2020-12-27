@@ -88,8 +88,7 @@ class LitSystem(LightningModule):
     def shared_step(self, batch, reg=False):
         latent, target_img = batch
         tri_neq_reg, tri_neq_val = None, None
-            
-        _, nz = latent.shape
+
         b, c, h, w = target_img.shape        
         
         fake_imgs_e = self.decoder(latent)
@@ -101,6 +100,7 @@ class LitSystem(LightningModule):
         lpips_val = lpips_loss.detach()
         
         if reg:
+            _, nz = latent.shape
             latent_l, latent_r = latent.view(2, b//2, nz)
             fake_imgs_l, fake_imgs_r = fake_imgs_e.view(2, b//2, c, h, w)
             fake_imgs_l, fake_imgs_r = fake_imgs_l.detach(), fake_imgs_r.detach()
