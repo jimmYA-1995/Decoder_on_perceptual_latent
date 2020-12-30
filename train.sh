@@ -1,5 +1,5 @@
-GPUS='0,1';
-BATCH_SIZE_PER_GPU=16;
+GPUS='0,1,2,3';
+BATCH_SIZE_PER_GPU=8;
 MAX_EPOCHS=200;
 LATENT_SIZE=1024;
 TRAIN_DATA=32000;
@@ -11,7 +11,7 @@ LEARNING_RATE='0.001';
 LR_SCHEDULER='None';
 NUM_SAMPLE=16;
 LOG_NAME='mds1024-cropface'; # lpips-tri-neq
-VERSION='embed_1e-3'; # mse-a1-fr1-after1-2
+VERSION='tri-ineq-after5'; # mse-a1-fr1-after1-2
 LOG_SAMPLE_EVERY=2;
 ROOT_DIR='~/data/FFHQ';
 LATENT_PATH='FFHQ_MDS_feat-cropface_70000.npy'; # 'FFHQ_MDS_feat-cropface_70000.npy';
