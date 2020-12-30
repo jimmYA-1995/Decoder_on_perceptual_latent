@@ -85,12 +85,13 @@ class LitSystem(LightningModule):
     def forward(self, latent):
         return self.decoder(latent)
 
-    def shared_step(self, latent, target_img, reg=False):
+    def shared_step(self, latent, target_img, indices=None, reg=False, mode='train'):
         tri_neq_reg, tri_neq_val = None, None
 
         b, c, h, w = target_img.shape        
         
-        fake_imgs_e = self.decoder(latent)
+        l = indices if mode=='train' else latent
+        fake_imgs_e = self.decoder(l)
         ssim_loss = - self.ssim_loss((target_img + 1) / 2., (fake_imgs_e + 1.) / 2.)
         mse_loss = F.mse_loss(target_img, fake_imgs_e)
         lpips_loss = self.percept((target_img + 1) / 2., (fake_imgs_e + 1.) / 2.).mean()
@@ -99,6 +100,7 @@ class LitSystem(LightningModule):
         lpips_val = lpips_loss.detach()
         
         if reg:
+            print(latent.shape)
             _, nz = latent.shape
             latent_l, latent_r = latent.view(2, b//2, nz)
             fake_imgs_l, fake_imgs_r = fake_imgs_e.view(2, b//2, c, h, w)
@@ -126,11 +128,11 @@ class LitSystem(LightningModule):
 
     def training_step(self, batch, batch_idx):
         # using latent indices on training
-        _, indices, target_img = batch
+        indices, latent, target_img = batch
         
-        use_reg = False #  if self.current_epoch > 3 else False
+        use_reg = True if self.current_epoch > 0 else False
         mse_loss, ssim_loss, lpips_loss, tri_neq_reg, mse_val, ssim_val, lpips_val, tri_neq_val = \
-            self.shared_step(indices, target_img, reg=use_reg)
+            self.shared_step(latent, target_img, indices=indices,reg=use_reg)
         
         total_loss = 0.
         for loss_type in self.losses:
@@ -155,34 +157,34 @@ class LitSystem(LightningModule):
             
     def validation_step(self, batch, batch_idx):
         latent, target_img = batch
-        mse_loss, ssim_loss, lpips_loss, tri_neq_reg, mse_val, ssim_val, lpips_val, tri_neq_val = self.shared_step(latent, target_img, reg=False)
+        mse_loss, ssim_loss, lpips_loss, tri_neq_reg, mse_val, ssim_val, lpips_val, tri_neq_val = self.shared_step(latent, target_img, reg=True, mode='val')
         self.log('Metric/Val-MSE', mse_val, on_epoch=True, prog_bar=True, logger=True)
         self.log('Metric/Val-SSIM', ssim_val, on_epoch=True, prog_bar=True, logger=True)
         self.log('Metric/Val-LPIPS', lpips_val, on_epoch=True, prog_bar=True, logger=True)
-        # self.log('Metric/Val-tri-neq', tri_neq_val, on_epoch=True, prog_bar=True, logger=True)
+        self.log('Metric/Val-tri-neq', tri_neq_val, on_epoch=True, prog_bar=True, logger=True)
         
-        return {'mse': mse_val, 'ssim': ssim_val, 'lpips': lpips_val}#, 'tri_neq': tri_neq_val}
+        return {'mse': mse_val, 'ssim': ssim_val, 'lpips': lpips_val, 'tri_neq': tri_neq_val}
     
     def validation_epoch_end(self, validation_step_outputs):
         epoch_mse = torch.cat([x['mse'].unsqueeze(0) for x in validation_step_outputs], dim=0).mean()
         epoch_ssim = torch.cat([x['ssim'].unsqueeze(0) for x in validation_step_outputs], dim=0).mean()
         epoch_lpips = torch.cat([x['lpips'].unsqueeze(0) for x in validation_step_outputs], dim=0).mean()
-        # epoch_tri_neq = torch.cat([x['tri_neq'].unsqueeze(0) for x in validation_step_outputs], dim=0).mean()
+        epoch_tri_neq = torch.cat([x['tri_neq'].unsqueeze(0) for x in validation_step_outputs], dim=0).mean()
         if epoch_mse < self.best_mse:
             self.best_mse = epoch_mse
         if epoch_ssim > self.best_ssim:
             self.best_ssim = epoch_ssim
         if epoch_lpips < self.best_lpips:
             self.best_lpips = epoch_lpips
-        #if epoch_tri_neq < self.best_tri_neq:
-        #    self.best_tri_neq = epoch_tri_neq
+        if epoch_tri_neq < self.best_tri_neq:
+            self.best_tri_neq = epoch_tri_neq
         
         self.logger.log_hyperparams(params=self.hparams,
                                     metrics={
                                         'val_MSE': self.best_mse,
                                         'val_SSIM': self.best_ssim,
                                         'val_LPIPS': self.best_lpips,
-                                        # 'val_tri_neq': self.best_tri_neq
+                                        'val_tri_neq': self.best_tri_neq
                                     })
         
     def configure_optimizers(self):
