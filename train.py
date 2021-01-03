@@ -125,7 +125,7 @@ def main(args):
                              train_size=args.train_size,
                              val_size=args.val_size)
     tb_logger = pl_loggers.TensorBoardLogger('runs', name=args.log_name, version=args.version, default_hp_metric=False)
-    kwargs = dict(logger=tb_logger, distributed_backend='ddp')
+    kwargs = dict(logger=tb_logger, distributed_backend='ddp', automatic_optimization=False)
     if not args.resume_from_checkpoint:
         kwargs.update({
             'resume_from_checkpoint': args.resume_from_checkpoint
