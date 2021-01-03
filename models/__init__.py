@@ -100,7 +100,6 @@ class LitSystem(LightningModule):
         lpips_val = lpips_loss.detach()
         
         if reg:
-            print(latent.shape)
             _, nz = latent.shape
             latent_l, latent_r = latent.view(2, b//2, nz)
             fake_imgs_l, fake_imgs_r = fake_imgs_e.view(2, b//2, c, h, w)
@@ -143,7 +142,7 @@ class LitSystem(LightningModule):
         self.log('Metric/LPIPS', lpips_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         
         if use_reg:
-            total_loss = total_loss + tri_neq_reg
+            total_loss = total_loss + 0.1 * tri_neq_reg
             self.log('Metric/tri-neq', tri_neq_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         
         return total_loss
@@ -188,7 +187,7 @@ class LitSystem(LightningModule):
                                     })
         
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, betas=(0, 0.99))
+        optimizer = torch.optim.Adam(self.decoder.parameters(), lr=self.lr, betas=(0, 0.99))
         scheduler = None
         if self.lr_scheduler != 'None':
             if self.lr_scheduler == 'ReduceLROnPlateau':
@@ -221,19 +220,19 @@ class LitSystem(LightningModule):
         
     def log_interpolated_images(self):
         N_INTERPOLATION = 10
-        latents = self.smpl_latent_train
+        with torch.no_grad():
+            latents = self.decoder.embed(self.smpl_latent_train)
         
-        fake_img_list = []
-        for idx in range(0, latents.shape[0], 2):
-            latent_e1 = latents[idx]
-            latent_e2 = latents[idx+1]
-            step = (latent_e2 - latent_e1) / N_INTERPOLATION
-            latent_list = list(map(lambda i: latent_e1 + i * step, range(1, N_INTERPOLATION)))
-            latent_list = [latent_e1] + latent_list + [latent_e2]
-            latent_list = [x.unsqueeze(0) for x in latent_list]
-            batch_latent = torch.cat(latent_list, axis=0)
+            fake_img_list = []
+            for idx in range(0, latents.shape[0], 2):
+                latent_e1 = latents[idx]
+                latent_e2 = latents[idx+1]
+                step = (latent_e2 - latent_e1) / N_INTERPOLATION
+                latent_list = list(map(lambda i: latent_e1 + i * step, range(1, N_INTERPOLATION)))
+                latent_list = [latent_e1] + latent_list + [latent_e2]
+                latent_list = [x.unsqueeze(0) for x in latent_list]
+                batch_latent = torch.cat(latent_list, axis=0)
 
-            with torch.no_grad():
                 fake_imgs = self(batch_latent)
                 res = fake_imgs.shape[2]
                 fake_imgs = fake_imgs.permute(0,3,2,1)
@@ -241,6 +240,6 @@ class LitSystem(LightningModule):
                 fake_imgs = fake_imgs.permute(2,1,0)
                 fake_img_list.append(fake_imgs)
                 
-        interpolated_gallery = torch.cat(fake_img_list, dim=1).cpu().numpy()
-        interpolated_gallery = (interpolated_gallery * 127.5 + 127.5).astype(np.uint8)
+            interpolated_gallery = torch.cat(fake_img_list, dim=1).cpu().numpy()
+            interpolated_gallery = (interpolated_gallery * 127.5 + 127.5).astype(np.uint8)
         self.logger.experiment.add_image('interpolated_img', interpolated_gallery, self.current_epoch)        
