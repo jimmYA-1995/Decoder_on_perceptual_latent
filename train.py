@@ -23,7 +23,7 @@ from torchvision import transforms
 from pytorch_lightning import Trainer
 from pytorch_lightning import loggers as pl_loggers
 
-from models import LitSystem, CNNDecoder
+from models import LitSystem
 
 
 class Dataset(torch.utils.data.Dataset):
@@ -114,12 +114,8 @@ def main(args):
         'latents': latent[:args.num_sample],
         'targets': target_img[:args.num_sample]
     }
-    
-    model = CNNDecoder(args.latent_dim, args.norm_type)
-    train_system = LitSystem(model,
-                             args.log_sample_every,
-                             # args.bs_per_gpu,
-                             # args.train_size,
+
+    train_system = LitSystem(args.log_sample_every,
                              samples,
                              lr=args.lr,
                              lr_scheduler=args.lr_scheduler,

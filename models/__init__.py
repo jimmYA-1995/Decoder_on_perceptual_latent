@@ -9,12 +9,11 @@ from pytorch_lightning import LightningModule
 
 from pytorch_ssim import SSIM, ssim
 from lpips_pytorch import LPIPS
-from .cnn_decoder import CNNDecoder
+from .models import Generator, Discriminator
 
 
 class LitSystem(LightningModule):
     def __init__(self,
-                 decoder: LightningModule,
                  log_sample_every,
                  samples,
                  losses: str = 'mse',
@@ -36,8 +35,11 @@ class LitSystem(LightningModule):
         # https://github.com/PyTorchLightning/pytorch-lightning/issues/2406
         # https://github.com/PyTorchLightning/pytorch-lightning/issues/4030#issuecomment-708274317
         # register hyparams & metric in the init. and update value later
-        self.save_hyperparameters("train_size", "val_size", "losses", "lr", "batch_size", "latent_dim", "norm_type", "val_MSE", "val_SSIM", "val_LPIPS", "val_tri_neq")
-        self.decoder = decoder
+        self.save_hyperparameters("train_size", "val_size", "losses", "lr", "batch_size", "latent_dim",
+                                  "norm_type", "val_MSE", "val_SSIM", "val_LPIPS", "val_tri_neq")
+        
+        self.g = Generator(latent_dim, 0, 256)
+        self.d = Discriminator(0, 256)
         self.losses = losses.split(',')
         self.lr = lr
         self.lr_scheduler = lr_scheduler
@@ -82,8 +84,9 @@ class LitSystem(LightningModule):
         
         return parser
         
-    def forward(self, latent):
-        return self.decoder(latent)
+    def forward(self, latent, skip_mapping=False):
+        # inference
+        return self.g([latent], skip_mapping=skip_mapping)
 
     def shared_step(self, batch, reg=False):
         latent, target_img = batch
@@ -92,7 +95,7 @@ class LitSystem(LightningModule):
         _, nz = latent.shape
         b, c, h, w = target_img.shape        
         
-        fake_imgs_e = self.decoder(latent)
+        fake_imgs_e, _ = self.g([latent], skip_mapping=True)
         ssim_loss = - self.ssim_loss((target_img + 1) / 2., (fake_imgs_e + 1.) / 2.)
         mse_loss = F.mse_loss(target_img, fake_imgs_e)
         lpips_loss = self.percept((target_img + 1) / 2., (fake_imgs_e + 1.) / 2.).mean()
@@ -107,7 +110,7 @@ class LitSystem(LightningModule):
             # target_img_l, target_img_r = target_img.view(2, b//2, c, h, w)
             alpha = torch.rand((b//2,1)).type_as(latent)
             interpolated_latents = latent_l * alpha + latent_r * (torch.ones_like(alpha) - alpha)
-            fake_imgs_c = self.decoder(interpolated_latents)
+            fake_imgs_c, _ = self.decoder([interpolated_latents], skip_mapping=True)
 
             # lpips_lr = self.percept((fake_imgs_l + 1) / 2., (fake_imgs_r + 1.) / 2.).mean()
             lpips_cl = self.percept((fake_imgs_c + 1) / 2., (fake_imgs_l + 1.) / 2.).mean()
@@ -208,7 +211,7 @@ class LitSystem(LightningModule):
         return optimizer
         
     def log_sample_images(self, mode='train'):
-        sample_fake_imgs = self(getattr(self, f'smpl_latent_{mode}'))
+        sample_fake_imgs = self(getattr(self, f'smpl_latent_{mode}'), skip_mapping=True)[0]
         stack_imgs = torch.stack([getattr(self, f'smpl_target_{mode}'), sample_fake_imgs], dim=0)
         images = stack_imgs.permute(1,0,2,3,4).reshape(self.n_sample*2, *sample_fake_imgs.shape[1:])
         grid_imgs = torchvision.utils.make_grid(images, normalize=True, range=(-1,1), nrow=4)
@@ -229,7 +232,7 @@ class LitSystem(LightningModule):
             batch_latent = torch.cat(latent_list, axis=0)
 
             with torch.no_grad():
-                fake_imgs = self(batch_latent)
+                fake_imgs = self(batch_latent, skip_mapping=True)[0]
                 res = fake_imgs.shape[2]
                 fake_imgs = fake_imgs.permute(0,3,2,1)
                 fake_imgs = fake_imgs.reshape(res*batch_latent.shape[0], res, 3)
