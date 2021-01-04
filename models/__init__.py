@@ -72,10 +72,6 @@ class LitSystem(LightningModule):
             param.requires_grad = False
         
         # metric & log
-        self.best_mse = 4.
-        self.best_ssim = 0.
-        self.best_lpips = float("inf")
-        self.best_tri_neq = float("inf")
         self.log_sample_every = log_sample_every
         
         self.mean_path_length = 0
@@ -94,12 +90,7 @@ class LitSystem(LightningModule):
     @staticmethod
     def add_model_specific_args(parent_parser):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
-        # parser.add_argument('--', type=, default=, help='')
         parser.add_argument('--lr', type=float, default=1e-2)
-        # parser.add_argument('--optim', type=str, default='Adam')
-        # parser.add_argument('--beta_1', type=float, default=0.)
-        # parser.add_argument('--beta_2', type=float, default=0.99)
-        # parser.add_argument('--use_tri_neq', type=bool, default=False, action='store_true', help='whether using tri inequality on lpips')
         parser.add_argument('--losses', type=str, default='mse', help='comma seperated str. e.g. mse,lpips,ssim')
         parser.add_argument('--lr_scheduler', type=str, choices=['None', 'ReduceLROnPlateau', 'MultiStepLR'])
         parser.add_argument('--log_sample_every', type=int, default=10)
@@ -110,50 +101,17 @@ class LitSystem(LightningModule):
         # inference
         return self.g([latent], skip_mapping=skip_mapping)
 
-    def shared_step(self, batch, reg=False):
-        latent, target_img = batch
-        tri_neq_reg, tri_neq_val = None, None
-            
-        _, nz = latent.shape
-        b, c, h, w = target_img.shape        
-        
-        fake_imgs_e, _ = self.g([latent], skip_mapping=True)
-        ssim_loss = - self.ssim_loss((target_img + 1) / 2., (fake_imgs_e + 1.) / 2.)
-        mse_loss = F.mse_loss(target_img, fake_imgs_e)
-        lpips_loss = self.percept((target_img + 1) / 2., (fake_imgs_e + 1.) / 2.).mean()
-        mse_val = mse_loss.detach()
-        ssim_val = - ssim_loss.detach()
-        lpips_val = lpips_loss.detach()
-        
-        if reg:
-            latent_l, latent_r = latent.view(2, b//2, nz)
-            fake_imgs_l, fake_imgs_r = fake_imgs_e.view(2, b//2, c, h, w)
-            fake_imgs_l, fake_imgs_r = fake_imgs_l.detach(), fake_imgs_r.detach()
-            # target_img_l, target_img_r = target_img.view(2, b//2, c, h, w)
-            alpha = torch.rand((b//2,1)).type_as(latent)
-            interpolated_latents = latent_l * alpha + latent_r * (torch.ones_like(alpha) - alpha)
-            fake_imgs_c, _ = self.decoder([interpolated_latents], skip_mapping=True)
-
-            # lpips_lr = self.percept((fake_imgs_l + 1) / 2., (fake_imgs_r + 1.) / 2.).mean()
-            lpips_cl = self.percept((fake_imgs_c + 1) / 2., (fake_imgs_l + 1.) / 2.).mean()
-            lpips_cr = self.percept((fake_imgs_c + 1) / 2., (fake_imgs_r + 1.) / 2.).mean()
-
-            assert (lpips_cl > 0).all() and (lpips_cr > 0).all(), "lpips small than zero"
-            # tri_neq_reg = torch.max(lpips_cl + lpips_cr - lpips_lr, torch.zeros_like(lpips_lr))
-            tri_neq_reg = lpips_cl + lpips_cr
-            tri_neq_reg = tri_neq_reg.mean()
-
-            tri_neq_val = tri_neq_reg.detach()
-        
-        return mse_loss, ssim_loss, lpips_loss, tri_neq_reg, mse_val, ssim_val, lpips_val, tri_neq_val
-
-    def on_train_start(self):
-        pass
-
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch, batch_idx, optimizer_idx):
         latent, target_img = batch
         _, nz = latent.shape
         b, c, h, w = target_img.shape
+        target_img = target_img[:b//2, ...] ### 
+        
+        # interpolated latents
+        latent_l, latent_r = latent.view(2, b//2, nz)
+        alpha = torch.rand((b//2,1)).type_as(latent)
+        interpolated_latents = \
+            latent_l * alpha + latent_r * (torch.ones_like(alpha) - alpha)
 
         use_reg = False #  if self.current_epoch > 3 else False
         (opt_gm, opt_gs, opt_d) = self.optimizers()
@@ -171,10 +129,11 @@ class LitSystem(LightningModule):
         # train D
         requires_grad(self.g, False)
         requires_grad(self.d, True)
-        fake_imgs_e, _ = self.g([latent], skip_mapping=True) # real latent
+        fake_imgs_e, _ = self.g([interpolated_latents], skip_mapping=True) # real latent
         fake_pred = self.d(fake_imgs_e)
         real_pred = self.d(target_img)
         d_loss = logistic_loss(real_pred, fake_pred)
+        d_loss_val = d_loss.detach()
         opt_d.zero_grad()
         self.manual_backward(d_loss, opt_d)
         opt_d.step()
@@ -184,31 +143,28 @@ class LitSystem(LightningModule):
             target_img.requires_grad = True
             real_pred = self.d(target_img)
             r1_loss = d_r1_loss(real_pred, target_img)
+            r1_loss = self.r1 / 2 * r1_loss * self.d_reg_every + 0 * real_pred[0]
+            r1_loss_val = r1_loss.item()
             opt_d.zero_grad()
-            self.manual_backward(
-                self.r1 / 2 * r1_loss * self.d_reg_every + 0 * real_pred[0],
-                opt_d
-            )
+            self.manual_backward(r1_loss, opt_d)
             opt_d.step()
+            self.log('Metric/D-r1-reg', r1_loss_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         
         # train G
         requires_grad(self.g, True)
         requires_grad(self.d, False)
         # real latent & interpolated latent
-        fake_imgs_e, _ = self.g([latent], skip_mapping=True)
+        # fake_imgs_e, _ = self.g([latent], skip_mapping=True)
         # reconstruction loss
-        fake_imgs_e = torch.sigmoid(fake_imgs_e)
-        ssim_loss = - self.ssim_loss((target_img + 1) / 2., fake_imgs_e)
-        ssim_val = - ssim_loss.detach()
+        # fake_imgs_e = torch.sigmoid(fake_imgs_e)
+        # ssim_loss = - self.ssim_loss((target_img + 1) / 2., fake_imgs_e)
+        # ssim_val = - ssim_loss.detach()
         
-        # interpolated latents
-        latent_l, latent_r = latent.view(2, b//2, nz)
-        alpha = torch.rand((b//2,1)).type_as(latent)
-        interpolated_latents = latent_l * alpha + latent_r * (torch.ones_like(alpha) - alpha)
-        fake_imgs_i = self.g([interpolated_latents], skip_mapping=True)
+        fake_imgs_i, _ = self.g([interpolated_latents], skip_mapping=True)
         fake_pred_i = self.d(fake_imgs_i)
         
-        g_loss = nonsaturating_loss(fake_pred) + ssim_loss
+        g_loss = nonsaturating_loss(fake_pred_i)
+        g_loss_val = g_loss.detach()
         opt_gs.zero_grad()
         self.manual_backward(g_loss, opt_gs)
         opt_gs.step()
@@ -220,30 +176,14 @@ class LitSystem(LightningModule):
                 fake_imgs_i, interpolated_latents, self.mean_path_length
             )
             weighted_path_loss = self.path_regularize * self.g_reg_every * path_loss
+            weighted_path_loss_val = weighted_path_loss.item()
             opt_gs.zero_grad()
             self.manual_backward(weighted_path_loss, opt_gs)
             opt_gs.step()
-        
-        
-        #mse_loss, ssim_loss, lpips_loss, tri_neq_reg, mse_val, ssim_val, lpips_val, tri_neq_val = \
-        #    self.shared_step(batch, reg=use_reg)
-        
-        #total_loss = 0.
-        #for loss_type in self.losses:
-        #    total_loss += locals()[f'{loss_type}_loss']
+            self.log('Metric/G-PPL-reg', weighted_path_loss_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
-        self.log('Metric/MSE', mse_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log('Metric/SSIM', ssim_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log('Metric/LPIPS', lpips_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        
-        if use_reg:
-            total_loss = total_loss + tri_neq_reg
-            self.log('Metric/tri-neq', tri_neq_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        
-        # mean_path_length
-        return {
-            'mean_path_length':
-        }
+        self.log('Metric/G_GANloss', g_loss_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log('Metric/D-GANloss', d_loss_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
     
     def training_epoch_end(self, training_step_outputs):
         if self.current_epoch == 0 or \
@@ -251,43 +191,29 @@ class LitSystem(LightningModule):
             self.log_sample_images()
             self.log_sample_images(mode='test')
             self.log_interpolated_images()
-            
-    def validation_step(self, batch, batch_idx):
-        mse_loss, ssim_loss, lpips_loss, tri_neq_reg, mse_val, ssim_val, lpips_val, tri_neq_val = self.shared_step(batch, reg=False)
-        self.log('Metric/Val-MSE', mse_val, on_epoch=True, prog_bar=True, logger=True)
-        self.log('Metric/Val-SSIM', ssim_val, on_epoch=True, prog_bar=True, logger=True)
-        self.log('Metric/Val-LPIPS', lpips_val, on_epoch=True, prog_bar=True, logger=True)
-        # self.log('Metric/Val-tri-neq', tri_neq_val, on_epoch=True, prog_bar=True, logger=True)
-        
-        return {'mse': mse_val, 'ssim': ssim_val, 'lpips': lpips_val}#, 'tri_neq': tri_neq_val}
     
-    def validation_epoch_end(self, validation_step_outputs):
-        epoch_mse = torch.cat([x['mse'].unsqueeze(0) for x in validation_step_outputs], dim=0).mean()
-        epoch_ssim = torch.cat([x['ssim'].unsqueeze(0) for x in validation_step_outputs], dim=0).mean()
-        epoch_lpips = torch.cat([x['lpips'].unsqueeze(0) for x in validation_step_outputs], dim=0).mean()
-        # epoch_tri_neq = torch.cat([x['tri_neq'].unsqueeze(0) for x in validation_step_outputs], dim=0).mean()
-        if epoch_mse < self.best_mse:
-            self.best_mse = epoch_mse
-        if epoch_ssim > self.best_ssim:
-            self.best_ssim = epoch_ssim
-        if epoch_lpips < self.best_lpips:
-            self.best_lpips = epoch_lpips
-        #if epoch_tri_neq < self.best_tri_neq:
-        #    self.best_tri_neq = epoch_tri_neq
-        
-        self.logger.log_hyperparams(params=self.hparams,
-                                    metrics={
-                                        'val_MSE': self.best_mse,
-                                        'val_SSIM': self.best_ssim,
-                                        'val_LPIPS': self.best_lpips,
-                                        # 'val_tri_neq': self.best_tri_neq
-                                    })
+        # self.logger.log_hyperparams(
+        #     params=self.hparams,
+        #     metrics={
+        #         
+        #     }
+        # )
         
     def configure_optimizers(self):
-        # TODO: multiply lr by reg. ratio for both G&D
-        opt_gm = torch.optim.Adam(self.g.mapping_network.parameters(), lr=self.lr, betas=(0, 0.99))
-        opt_gs = torch.optim.Adam(self.g.synthesis_network.parameters(), lr=self.lr, betas=(0, 0.99))
-        opt_d = torch.optim.Adam(self.d.parameters(), lr=self.lr, betas=(0, 0.99))
+        g_reg_ratio = self.g_reg_every / (self.g_reg_every + 1)
+        d_reg_ratio = self.d_reg_every / (self.d_reg_every + 1)
+        opt_gm = torch.optim.Adam(
+            self.g.mapping_network.parameters(),
+            lr=self.lr * g_reg_ratio,
+            betas=(0, 0.99))
+        opt_gs = torch.optim.Adam(
+            self.g.synthesis_network.parameters(),
+            lr=self.lr*g_reg_ratio,
+            betas=(0, 0.99))
+        opt_d = torch.optim.Adam(
+            self.d.parameters(),
+            lr=self.lr*d_reg_ratio,
+            betas=(0, 0.99))
         
         return [opt_gm, opt_gs, opt_d]
         

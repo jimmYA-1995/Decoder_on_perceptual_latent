@@ -132,7 +132,7 @@ def main(args):
         })
     
     trainer = Trainer.from_argparse_args(args, **kwargs)
-    trainer.fit(train_system, train_loader, val_loader)
+    trainer.fit(train_system, train_loader)
 
 if __name__ == '__main__':
     parser = ArgumentParser()

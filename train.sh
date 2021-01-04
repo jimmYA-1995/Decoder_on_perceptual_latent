@@ -1,5 +1,5 @@
 GPUS='0,1';
-BATCH_SIZE_PER_GPU=16;
+BATCH_SIZE_PER_GPU=32;
 MAX_EPOCHS=10;
 LATENT_SIZE=512;
 TRAIN_DATA=320;
@@ -11,7 +11,7 @@ LEARNING_RATE='0.001';
 LR_SCHEDULER='None';
 NUM_SAMPLE=16;
 LOG_NAME='test'; # lpips-tri-neq
-VERSION='synthesis_network'; # mse-a1-fr1-after1-2
+VERSION='gan'; # mse-a1-fr1-after1-2
 LOG_SAMPLE_EVERY=2;
 ROOT_DIR='~/data/FFHQ';
 LATENT_PATH='FFHQ_MDS_feat-cropface_70000.npy';
