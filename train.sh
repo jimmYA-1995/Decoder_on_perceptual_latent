@@ -1,14 +1,12 @@
-GPUS='0,1';
+GPUS='0,1,2,3';
 BATCH_SIZE_PER_GPU=32;
-MAX_EPOCHS=10;
+MAX_EPOCHS=5;
 LATENT_SIZE=512;
 TRAIN_DATA=320;
 VAL_DATA=160;
 TEST_DATA=1000;
-NORM_LAYER_TYPE='spectral_norm';
 LOSSES='ssim,lpips';
 LEARNING_RATE='0.001';
-LR_SCHEDULER='None';
 NUM_SAMPLE=16;
 LOG_NAME='test'; # lpips-tri-neq
 VERSION='gan'; # mse-a1-fr1-after1-2
@@ -32,10 +30,8 @@ python $1 \
 --train_size ${TRAIN_DATA} \
 --val_size ${VAL_DATA} \
 --test_size ${TEST_DATA} \
---norm_type ${NORM_LAYER_TYPE} \
 --losses ${LOSSES} \
 --lr ${LEARNING_RATE} \
---lr_scheduler ${LR_SCHEDULER} \
 --num_sample ${NUM_SAMPLE} \
 --log_name ${LOG_NAME} \
 --version ${VERSION} \

@@ -23,13 +23,11 @@ class LitSystem(LightningModule):
     def __init__(self,
                  log_sample_every,
                  samples,
-                 losses: str = 'mse',
+                 losses: str = 'G:GAN,ppl;D:GAN,r1',
                  lr: float = 0.2,
-                 lr_scheduler: str = None,
                  batch_size: int = 32,
                  latent_dim: int = 512,
-                 train_size: int = 3200,
-                 norm_type: str = 'batch_norm'
+                 train_size: int = 3200
         ):
         
         super(LitSystem, self).__init__()
@@ -38,8 +36,7 @@ class LitSystem(LightningModule):
         # https://github.com/PyTorchLightning/pytorch-lightning/issues/2406
         # https://github.com/PyTorchLightning/pytorch-lightning/issues/4030#issuecomment-708274317
         # register hyparams & metric in the init. and update value later
-        self.save_hyperparameters("train_size", "val_size", "losses", "lr", "batch_size", "latent_dim",
-                                  "norm_type")
+        self.save_hyperparameters("train_size", "losses", "lr", "batch_size", "latent_dim")
         
         self.latent_dim = latent_dim
         self.mixing_prob = 0.9
@@ -51,9 +48,7 @@ class LitSystem(LightningModule):
         
         self.g = Generator(latent_dim, 0, 256)
         self.d = Discriminator(0, 256)
-        self.losses = losses.split(',')
         self.lr = lr
-        self.lr_scheduler = lr_scheduler
         
         # loss
         self.ce_loss = torch.nn.CrossEntropyLoss()
@@ -88,7 +83,6 @@ class LitSystem(LightningModule):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
         parser.add_argument('--lr', type=float, default=1e-2)
         parser.add_argument('--losses', type=str, default='mse', help='comma seperated str. e.g. mse,lpips,ssim')
-        parser.add_argument('--lr_scheduler', type=str, choices=['None', 'ReduceLROnPlateau', 'MultiStepLR'])
         parser.add_argument('--log_sample_every', type=int, default=10)
         
         return parser
@@ -98,6 +92,7 @@ class LitSystem(LightningModule):
         return self.g([latent], skip_mapping=skip_mapping)
 
     def training_step(self, batch, batch_idx, optimizer_idx):
+        weighted_path_loss_val, r1_loss_val = None, None
         latent, target_img = batch
         _, nz = latent.shape
         b, c, h, w = target_img.shape
@@ -144,7 +139,7 @@ class LitSystem(LightningModule):
             opt_d.zero_grad()
             self.manual_backward(r1_loss, opt_d)
             opt_d.step()
-            self.log('Metric/D-r1-reg', r1_loss_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+            
         
         # train G
         requires_grad(self.g, True)
@@ -176,10 +171,12 @@ class LitSystem(LightningModule):
             opt_gs.zero_grad()
             self.manual_backward(weighted_path_loss, opt_gs)
             opt_gs.step()
-            self.log('Metric/G-PPL-reg', weighted_path_loss_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+            
 
         self.log('Metric/G_GANloss', g_loss_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log('Metric/D-GANloss', d_loss_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        #self.log('Metric/G-PPL-reg', weighted_path_loss_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        #self.log('Metric/D-r1-reg', r1_loss_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
     
     def training_epoch_end(self, training_step_outputs):
         if self.current_epoch == 0 or \

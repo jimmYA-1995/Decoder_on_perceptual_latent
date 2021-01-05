@@ -118,13 +118,10 @@ def main(args):
     train_system = LitSystem(args.log_sample_every,
                              samples,
                              lr=args.lr,
-                             lr_scheduler=args.lr_scheduler,
                              batch_size=(args.n_gpu*args.bs_per_gpu),
-                             norm_type=args.norm_type,
                              latent_dim=args.latent_dim,
-                             train_size=args.train_size,
-                             val_size=args.val_size)
-    tb_logger = pl_loggers.TensorBoardLogger('runs', name=args.log_name, version=args.version, default_hp_metric=False)
+                             train_size=args.train_size)
+    tb_logger = pl_loggers.TensorBoardLogger('runs', name=args.log_name, version=args.version)
     kwargs = dict(logger=tb_logger, distributed_backend='ddp', automatic_optimization=False)
     if not args.resume_from_checkpoint:
         kwargs.update({
@@ -136,9 +133,6 @@ def main(args):
 
 if __name__ == '__main__':
     parser = ArgumentParser()
-    
-    # program arguments
-    DATA_ROOT = Path('~/data/FFHQ').expanduser()
     
 #     parser.add_argument('--max_steps', type=int, default=1)
     parser.add_argument('--num_sample', type=int, default=32)
@@ -156,7 +150,6 @@ if __name__ == '__main__':
     parser.add_argument('--test_size', type=int, default=1000)
     parser.add_argument('--bs_per_gpu', type=int, default=32)
     parser.add_argument('--latent_dim', type=int, default=512)
-    parser.add_argument('--norm_type', type=str, default='batch_norm')
     
     parser = LitSystem.add_model_specific_args(parser)
     
