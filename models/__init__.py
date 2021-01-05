@@ -29,12 +29,8 @@ class LitSystem(LightningModule):
                  batch_size: int = 32,
                  latent_dim: int = 512,
                  train_size: int = 3200,
-                 norm_type: str = 'batch_norm',
-                 val_size: int = 3200,
-                 val_MSE: float = -1.,
-                 val_SSIM: float = -1.,
-                 val_LPIPS: float = -1.,
-                 val_tri_neq: float = -1):
+                 norm_type: str = 'batch_norm'
+        ):
         
         super(LitSystem, self).__init__()
         
@@ -43,7 +39,7 @@ class LitSystem(LightningModule):
         # https://github.com/PyTorchLightning/pytorch-lightning/issues/4030#issuecomment-708274317
         # register hyparams & metric in the init. and update value later
         self.save_hyperparameters("train_size", "val_size", "losses", "lr", "batch_size", "latent_dim",
-                                  "norm_type", "val_MSE", "val_SSIM", "val_LPIPS", "val_tri_neq")
+                                  "norm_type")
         
         self.latent_dim = latent_dim
         self.mixing_prob = 0.9
@@ -61,15 +57,15 @@ class LitSystem(LightningModule):
         
         # loss
         self.ce_loss = torch.nn.CrossEntropyLoss()
-        self.ssim_loss = SSIM()
+        # self.ssim_loss = SSIM()
         # https://github.com/S-aiueo32/lpips-pytorch
         # not using official repo. because we can't use sub-DataParallel model in pytorh-lightning
-        self.percept = LPIPS(
-            net_type='alex',
-            version='0.1'
-        )
-        for param in self.percept.parameters():
-            param.requires_grad = False
+        # self.percept = LPIPS(
+        #     net_type='alex',
+        #     version='0.1'
+        # )
+        # for param in self.percept.parameters():
+        #     param.requires_grad = False
         
         # metric & log
         self.log_sample_every = log_sample_every
