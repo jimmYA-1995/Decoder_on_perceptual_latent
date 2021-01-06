@@ -112,6 +112,9 @@ class Discriminator(nn.Module):
         self.label_out = Dense_layer(nf(0), max(label_size, 1))
 
     def forward(self, images_in, labels_in=None):
+        # TODO: conditional GAN (latent as conditional input)
+        # # inner product on D. dense & latents --> output 
+        # (opt.) supervised reconstruction error: tune loss weights
         assert images_in.shape[1] == self.img_channels, \
                f"(D) channel unmatched. {images_in.shape[1]} v.s. {self.img_channels}"
         x = None

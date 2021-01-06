@@ -5,11 +5,12 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import torchvision
+from torch.distributions.multivariate_normal import MultivariateNormal
 from pytorch_lightning import LightningModule
 
 from pytorch_ssim import SSIM, ssim
 from lpips_pytorch import LPIPS
-from utils import mixing_noise
+from utils import mixing_noise, cov
 from .models import Generator, Discriminator
 from losses import nonsaturating_loss, path_regularize, logistic_loss, d_r1_loss
 
@@ -96,13 +97,12 @@ class LitSystem(LightningModule):
         latent, target_img = batch
         _, nz = latent.shape
         b, c, h, w = target_img.shape
-        target_img = target_img[:b//2, ...] ### 
         
-        # interpolated latents
-        latent_l, latent_r = latent.view(2, b//2, nz)
-        alpha = torch.rand((b//2,1)).type_as(latent)
-        interpolated_latents = \
-            latent_l * alpha + latent_r * (torch.ones_like(alpha) - alpha)
+        # resample latents
+        mu = latent.mean(0)
+        sigma = cov(latent, rowvar=False)
+        distrib = MultivariateNormal(loc=mu, covariance_matrix=sigma)
+        resample_latents = distrib.rsample(sample_shape=(b))
 
         use_reg = False #  if self.current_epoch > 3 else False
         (opt_gm, opt_gs, opt_d) = self.optimizers()
@@ -120,7 +120,7 @@ class LitSystem(LightningModule):
         # train D
         requires_grad(self.g, False)
         requires_grad(self.d, True)
-        fake_imgs_e, _ = self.g([interpolated_latents], skip_mapping=True) # real latent
+        fake_imgs_e, _ = self.g([resample_latents], skip_mapping=True) # real latent
         fake_pred = self.d(fake_imgs_e)
         real_pred = self.d(target_img)
         d_loss = logistic_loss(real_pred, fake_pred)
@@ -151,7 +151,7 @@ class LitSystem(LightningModule):
         # ssim_loss = - self.ssim_loss((target_img + 1) / 2., fake_imgs_e)
         # ssim_val = - ssim_loss.detach()
         
-        fake_imgs_i, _ = self.g([interpolated_latents], skip_mapping=True)
+        fake_imgs_i, _ = self.g([resample_latents], skip_mapping=True)
         fake_pred_i = self.d(fake_imgs_i)
         
         g_loss = nonsaturating_loss(fake_pred_i)
@@ -164,7 +164,7 @@ class LitSystem(LightningModule):
         if use_reg and g_reg:
             # TODO: PPL on which latents(real or interpolated)
             path_loss, self.mean_path_length, self.path_lengths = path_regularize(
-                fake_imgs_i, interpolated_latents, self.mean_path_length
+                fake_imgs_i, resample_latents, self.mean_path_length
             )
             weighted_path_loss = self.path_regularize * self.g_reg_every * path_loss
             weighted_path_loss_val = weighted_path_loss.item()
