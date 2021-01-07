@@ -9,6 +9,7 @@ class CNNDecoder(nn.Module):
 #         self.save_hyperparameters()
         
         self.embed = nn.Embedding.from_pretrained(latents, freeze=False)
+        self.embed_bn = nn.BatchNorm1d(self.embed.weight.shape[1])
     
         n_ch = [256, 256, 128, 128, 64, 64, 3]
         conv_blocks = []
@@ -41,6 +42,7 @@ class CNNDecoder(nn.Module):
         if inputs.ndim == 1:
             # indices
             latent = self.embed(inputs)
+            latent = self.embed_bn(latent)
         elif inputs.ndim == 2:
             # latents
             latent = inputs
