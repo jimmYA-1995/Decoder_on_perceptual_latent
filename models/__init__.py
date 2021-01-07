@@ -144,6 +144,17 @@ class LitSystem(LightningModule):
         if use_reg:
             total_loss = total_loss + 0.1 * tri_neq_reg
             self.log('Metric/tri-neq', tri_neq_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+            
+        embed = self.decoder.embed.weight
+        norms = torch.linalg.norm(embed, dim=1)
+        embed_mean, embed_std = norms.mean().item(), norms.std().item()
+        self.log('Stats/EmbedNorm-Mean', embed_mean, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log('Stats/EmbedNorm-Std', embed_std, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        
+        norms_l1 = torch.linalg.norm(self.decoder.linear1.weight).item()
+        self.log('Stats/Linear1Norm', norms_l1, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        norms_l2 = torch.linalg.norm(self.decoder.linear2.weight).item()
+        self.log('Stats/Linear1Norm', norms_l2, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         
         return total_loss
     
