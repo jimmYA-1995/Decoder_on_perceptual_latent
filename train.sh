@@ -1,6 +1,6 @@
 GPUS='0,1,2,3';
 BATCH_SIZE_PER_GPU=8;
-MAX_EPOCHS=50;
+MAX_EPOCHS=100;
 LATENT_SIZE=1024;
 TRAIN_DATA=32000;
 VAL_DATA=10000;
@@ -42,7 +42,6 @@ python $1 \
 --log_sample_every ${LOG_SAMPLE_EVERY} \
 --log_every_n_steps ${LOG_EVERY_N_STEPS} \
 --flush_logs_every_n_steps ${FLUSH_LOGS_EVERY_N_STEPS}
-
 
 # --sync_batchnorm
 # --resume_from_checkpoint

@@ -112,9 +112,9 @@ def main(args):
                         args.num_workers, args.latent_dim, args.bs_per_gpu)
     
     samples = {}
-    _, latent, target_img = next(iter(train_loader)) # not keep indices
+    indices, _, target_img = next(iter(train_loader)) # not keep indices
     samples['train'] = {
-        'latents': latent[:args.num_sample],
+        'latents': indices[:args.num_sample],
         'targets': target_img[:args.num_sample]
     }
     latent, target_img = next(iter(test_loader))
