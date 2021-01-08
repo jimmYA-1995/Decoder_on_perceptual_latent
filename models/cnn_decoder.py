@@ -9,13 +9,15 @@ class CNNDecoder(nn.Module):
 #         self.save_hyperparameters()
         
         self.embed = nn.Embedding.from_pretrained(latents, freeze=False)
-        self.embed_bn = nn.InstanceNorm1d(self.embed.weight.shape[1])
+        self.embed_In = nn.LayerNorm(self.embed.weight.size()[1:], elementwise_affine=False)
     
         n_ch = [256, 256, 128, 128, 64, 64, 3]
         conv_blocks = []
         latent_dim = latents.shape[1]
         self.linear1 = nn.Linear(latent_dim, 4096)
+        self.linear1_In = nn.LayerNorm(4096, elementwise_affine=False)
         self.linear2 = nn.Linear(4096, 8*8*256)
+        self.linear2_In = nn.LayerNorm(8*8*256, elementwise_affine=False)
         self.act = nn.LeakyReLU(0.2)
         print(f"using norm: {norm_type}")
 
@@ -41,8 +43,8 @@ class CNNDecoder(nn.Module):
     def forward(self, inputs):
         if inputs.ndim == 1:
             # indices
-            latent = self.embed(inputs).unsqueeze(1)
-            latent = self.embed_bn(latent).squeeze(1)
+            latent = self.embed(inputs)
+            latent = self.embed_In(latent)
         elif inputs.ndim == 2:
             # latents
             latent = inputs
@@ -50,8 +52,10 @@ class CNNDecoder(nn.Module):
             raise ValueError("unknown input dimension")
             
         x = self.linear1(latent)
+        x = self.linear1_In(x)
         x = self.act(x)
-        x = self.linear2(x).view(-1,256,8,8)
+        x = self.linear2(x)
+        x = self.linear2_In(x).view(-1,256,8,8)
         
         for layer in self.conv_blocks:
             x = layer(x)
