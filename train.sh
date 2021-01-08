@@ -1,6 +1,6 @@
 GPUS='0,1,2,3';
 BATCH_SIZE_PER_GPU=8;
-MAX_EPOCHS=200;
+MAX_EPOCHS=50;
 LATENT_SIZE=1024;
 TRAIN_DATA=32000;
 VAL_DATA=10000;
@@ -11,7 +11,7 @@ LEARNING_RATE='0.001';
 LR_SCHEDULER='None';
 NUM_SAMPLE=16;
 LOG_NAME='mds1024-cropface'; # lpips-tri-neq
-VERSION='embed_tri-ineq-after5'; # mse-a1-fr1-after1-2
+VERSION='embed_tri-ineq-tracknorm'; # mse-a1-fr1-after1-2
 LOG_SAMPLE_EVERY=2;
 ROOT_DIR='~/data/FFHQ';
 LATENT_PATH='FFHQ_MDS_feat-cropface_70000.npy'; # 'FFHQ_MDS_feat-cropface_70000.npy';
@@ -41,8 +41,8 @@ python $1 \
 --version ${VERSION} \
 --log_sample_every ${LOG_SAMPLE_EVERY} \
 --log_every_n_steps ${LOG_EVERY_N_STEPS} \
---flush_logs_every_n_steps ${FLUSH_LOGS_EVERY_N_STEPS} \
---resume_from_checkpoint 'runs/mds1024-cropface/embed_1e-3_ft1/checkpoints/epoch=399.ckpt'
+--flush_logs_every_n_steps ${FLUSH_LOGS_EVERY_N_STEPS}
+
 
 # --sync_batchnorm
 # --resume_from_checkpoint
