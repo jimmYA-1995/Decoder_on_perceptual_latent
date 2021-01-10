@@ -108,8 +108,7 @@ class Discriminator(nn.Module):
         
         # output layer
         self.conv_out = Layer(nf(1)+1, nf(1), kernel=3, use_bias=False)
-        self.dense_out = Dense_layer(512 * 4 * 4, nf(0))
-        self.label_out = Dense_layer(nf(0), max(label_size, 1))
+        self.label_out = Dense_layer(512 * 4 * 4, max(label_size, 1))
 
     def forward(self, images_in, labels_in=None):
         assert images_in.shape[1] == self.img_channels, \
@@ -130,9 +129,7 @@ class Discriminator(nn.Module):
         )
         x = self.conv_out(x)
         x = x.view(x.shape[0], -1)
-        x = self.dense_out(x)
-        out = self.label_out(x)
-        if labels_in is not None and labels_in.shape[1] > 0:
-            out = torch.mean(out * labels_in, dim=1, keepdims=True)
+        x = self.label_out(x)
+        out = torch.mean(x * labels_in, dim=1, keepdims=True)
             
         return out

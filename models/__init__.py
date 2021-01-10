@@ -120,9 +120,10 @@ class LitSystem(LightningModule):
         # train D
         requires_grad(self.g, False)
         requires_grad(self.d, True)
+        latent = latent[:b//2, ...]
         fake_imgs_e, _ = self.g([interpolated_latents], skip_mapping=True) # real latent
-        fake_pred = self.d(fake_imgs_e)
-        real_pred = self.d(target_img)
+        fake_pred = self.d(fake_imgs_e, labels_in=interpolated_latents)
+        real_pred = self.d(target_img, labels_in=latent)
         d_loss = logistic_loss(real_pred, fake_pred)
         d_loss_val = d_loss.detach()
         opt_d.zero_grad()
@@ -132,13 +133,14 @@ class LitSystem(LightningModule):
         d_reg = batch_idx % self.d_reg_every == 0
         if use_reg and d_reg:
             target_img.requires_grad = True
-            real_pred = self.d(target_img)
+            real_pred = self.d(target_img, labels_in=latent)
             r1_loss = d_r1_loss(real_pred, target_img)
             r1_loss = self.r1 / 2 * r1_loss * self.d_reg_every + 0 * real_pred[0]
             r1_loss_val = r1_loss.item()
             opt_d.zero_grad()
             self.manual_backward(r1_loss, opt_d)
             opt_d.step()
+            self.logger.experiment.add_scalar('Dreg-R1', r1_loss_val, batch_idx)
             
         
         # train G
@@ -152,7 +154,7 @@ class LitSystem(LightningModule):
         # ssim_val = - ssim_loss.detach()
         
         fake_imgs_i, _ = self.g([interpolated_latents], skip_mapping=True)
-        fake_pred_i = self.d(fake_imgs_i)
+        fake_pred_i = self.d(fake_imgs_i, labels_in=interpolated_latents)
         
         g_loss = nonsaturating_loss(fake_pred_i)
         g_loss_val = g_loss.detach()
@@ -171,7 +173,7 @@ class LitSystem(LightningModule):
             opt_gs.zero_grad()
             self.manual_backward(weighted_path_loss, opt_gs)
             opt_gs.step()
-            
+            self.logger.experiment.add_scalar('Greg-PPL', weighted_path_loss_val, batch_idx)
 
         self.log('Metric/G_GANloss', g_loss_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log('Metric/D-GANloss', d_loss_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
