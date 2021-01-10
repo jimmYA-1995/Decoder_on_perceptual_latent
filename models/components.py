@@ -433,7 +433,7 @@ class G_synthesis_stylegan2(nn.Module):
     def __init__(self,
         num_layers,
         resolution_log2,
-        dlatent_size        = 512,          # Disentangled latent (W) dimensionality.
+        dlatents_size       = 512,          # Disentangled latent (W) dimensionality.
         num_channels        = 3,            # Number of output color channels.
         kernel = 3,
         fmap_base           = 16 << 10,     # Overall multiplier for the number of feature maps.
@@ -466,8 +466,8 @@ class G_synthesis_stylegan2(nn.Module):
             
         # 4x4
         self.input = Parameter(torch.randn((1, nf(1), 4, 4)))
-        self.bottom_layer = Layer(nf(1), nf(1), use_modulate=True, dlatents_dim=dlatent_size, kernel=kernel, resample_kernel=resample_kernel)
-        self.trgbs.append(ToRGB(nf(1), num_channels, dlatent_size))
+        self.bottom_layer = Layer(nf(1), nf(1), use_modulate=True, dlatents_dim=dlatents_size, kernel=kernel, resample_kernel=resample_kernel)
+        self.trgbs.append(ToRGB(nf(1), num_channels, dlatents_size))
         
         # main layers
         self.convs = nn.ModuleList()
@@ -476,11 +476,11 @@ class G_synthesis_stylegan2(nn.Module):
         for res in range(3, self.resolution_log2 + 1):
             fmaps = nf(res-1)
             self.convs.extend([
-                Layer(in_channel, fmaps, use_modulate=True, dlatents_dim=dlatent_size, kernel=kernel, mode='up', resample_kernel=resample_kernel),
-                Layer(fmaps, fmaps, use_modulate=True, dlatents_dim=dlatent_size, kernel=kernel, resample_kernel=resample_kernel)
+                Layer(in_channel, fmaps, use_modulate=True, dlatents_dim=dlatents_size, kernel=kernel, mode='up', resample_kernel=resample_kernel),
+                Layer(fmaps, fmaps, use_modulate=True, dlatents_dim=dlatents_size, kernel=kernel, resample_kernel=resample_kernel)
             ])
             if self.architecture == 'skip':
-                self.trgbs.append(ToRGB(fmaps, num_channels, dlatent_size))
+                self.trgbs.append(ToRGB(fmaps, num_channels, dlatents_size))
             in_channel = fmaps
 
     def forward(self, dlatents_in):
@@ -508,7 +508,7 @@ class G_mapping(nn.Module):
         latent_size             = 512,          # Latent vector (Z) dimensionality.
         label_size              = 0,            # Label dimensionality, 0 if no labels.
         embedding_size          = 0,
-        dlatent_size            = 512,          # Disentangled latent (W) dimensionality.
+        dlatents_size            = 512,          # Disentangled latent (W) dimensionality.
         mapping_layers          = 8,            # Number of mapping layers.
         mapping_fmaps           = 512,          # Number of activations in the mapping layers.
         mapping_lrmul           = 0.01,         # Learning rate multiplier for the mapping layers.
@@ -528,7 +528,7 @@ class G_mapping(nn.Module):
         fan_in = (embedding_size +  latent_size) if label_size>0 else latent_size
         fc = []
         for layer_idx in range(mapping_layers):
-            fmaps = dlatent_size if layer_idx == mapping_layers - 1 else mapping_fmaps
+            fmaps = dlatents_size if layer_idx == mapping_layers - 1 else mapping_fmaps
             fc.append(Dense_layer(fan_in, fmaps, lrmul=mapping_lrmul))
             fan_in = fmaps
         self.fc = nn.Sequential(*fc)

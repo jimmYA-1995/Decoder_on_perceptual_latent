@@ -46,7 +46,7 @@ class LitSystem(LightningModule):
         self.path_batch_shrink = 2
         self.path_regularize = 2
         
-        self.g = Generator(latent_dim, 0, 256)
+        self.g = Generator(latent_dim, 0, 256, dlatents_size=latent_dim)
         self.d = Discriminator(0, 256)
         self.lr = lr
         
