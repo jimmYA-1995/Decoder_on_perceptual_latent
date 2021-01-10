@@ -46,13 +46,13 @@ class LitSystem(LightningModule):
         self.path_batch_shrink = 2
         self.path_regularize = 2
         
-        self.g = Generator(latent_dim, 0, 256)
+        self.g = Generator(latent_dim, 0, 256, dlatents_size=latent_dim) # skip mapping network
         self.d = Discriminator(0, 256)
         self.lr = lr
         
         # loss
         self.ce_loss = torch.nn.CrossEntropyLoss()
-        # self.ssim_loss = SSIM()
+        self.ssim_loss = SSIM()
         # https://github.com/S-aiueo32/lpips-pytorch
         # not using official repo. because we can't use sub-DataParallel model in pytorh-lightning
         # self.percept = LPIPS(
@@ -139,25 +139,28 @@ class LitSystem(LightningModule):
             opt_d.zero_grad()
             self.manual_backward(r1_loss, opt_d)
             opt_d.step()
+            self.logger.experiment.add_scalar('Metric/Dreg-R1', r1_loss_val, batch_idx)
             
         
         # train G
         requires_grad(self.g, True)
         requires_grad(self.d, False)
         # real latent & interpolated latent
-        # fake_imgs_e, _ = self.g([latent], skip_mapping=True)
+        latent = latent[:b//2, ...]
+        fake_imgs_e, _ = self.g([latent], skip_mapping=True)
         # reconstruction loss
-        # fake_imgs_e = torch.sigmoid(fake_imgs_e)
-        # ssim_loss = - self.ssim_loss((target_img + 1) / 2., fake_imgs_e)
-        # ssim_val = - ssim_loss.detach()
+        fake_imgs_e = torch.sigmoid(fake_imgs_e)
+        ssim_loss = - self.ssim_loss((target_img + 1) / 2., fake_imgs_e)
+        ssim_val = - ssim_loss.detach()
         
         fake_imgs_i, _ = self.g([interpolated_latents], skip_mapping=True)
         fake_pred_i = self.d(fake_imgs_i)
+        g_GANloss = nonsaturating_loss(fake_pred_i)
+        g_loss_val = g_GANloss.detach()
         
-        g_loss = nonsaturating_loss(fake_pred_i)
-        g_loss_val = g_loss.detach()
+        total_Gloss = g_GANloss + 0.1 * ssim_loss
         opt_gs.zero_grad()
-        self.manual_backward(g_loss, opt_gs)
+        self.manual_backward(total_Gloss, opt_gs)
         opt_gs.step()
         
         g_reg = batch_idx % self.g_reg_every == 0
@@ -171,10 +174,11 @@ class LitSystem(LightningModule):
             opt_gs.zero_grad()
             self.manual_backward(weighted_path_loss, opt_gs)
             opt_gs.step()
-            
+            self.logger.experiment.add_scalar('Metric/Greg-PPL', weighted_path_loss_val, batch_idx)
 
         self.log('Metric/G_GANloss', g_loss_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log('Metric/D-GANloss', d_loss_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log('Metric/G_SSIM', ssim_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log('Metric/D-GANloss', d_loss_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)      
         #self.log('Metric/G-PPL-reg', weighted_path_loss_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         #self.log('Metric/D-r1-reg', r1_loss_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
     
