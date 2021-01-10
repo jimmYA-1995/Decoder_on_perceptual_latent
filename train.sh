@@ -1,5 +1,5 @@
-GPUS='0,1,2,3';
-BATCH_SIZE_PER_GPU=16;
+GPUS='0,1,2,3,4,5,6,7';
+BATCH_SIZE_PER_GPU=8;
 MAX_EPOCHS=200;
 LATENT_SIZE=1024;
 TRAIN_DATA=32000;
@@ -8,13 +8,13 @@ TEST_DATA=1000;
 LOSSES='ssim';
 LEARNING_RATE='0.002';
 NUM_SAMPLE=16;
-LOG_NAME='cropface'; # lpips-tri-neq
+LOG_NAME='mds1024-cropface'; # lpips-tri-neq
 VERSION='gan+0.1ssim'; # mse-a1-fr1-after1-2
 LOG_SAMPLE_EVERY=2;
 ROOT_DIR='~/data/FFHQ';
 LATENT_PATH='FFHQ_MDS_feat-cropface_70000.npy';
 TARGET_DIR='images256x256-cropface';
-N_WORKERS=4;
+N_WORKERS=16;
 LOG_EVERY_N_STEPS=50;
 FLUSH_LOGS_EVERY_N_STEPS=500;
  \
