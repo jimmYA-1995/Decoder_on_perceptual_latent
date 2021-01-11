@@ -34,6 +34,9 @@ class CNNDecoder(nn.Module):
             elif norm_type == 'batch_norm' and i in [4,5]:
                 bn = nn.BatchNorm2d(n_ch[i+1])
                 conv_blocks.extend([conv, bn])
+            elif norm_type == 'instance_norm':
+                In = nn.InstanceNorm2d(n_ch[i+1])
+                conv_blocks.extend([conv, In])
             else:
                 conv_blocks.append(conv)
                 
