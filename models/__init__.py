@@ -154,7 +154,7 @@ class LitSystem(LightningModule):
         norms_l1 = torch.linalg.norm(self.decoder.linear1.weight).item()
         self.log('Stats/Linear1Norm', norms_l1, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         norms_l2 = torch.linalg.norm(self.decoder.linear2.weight).item()
-        self.log('Stats/Linear1Norm', norms_l2, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log('Stats/Linear2Norm', norms_l2, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         
         return total_loss
     
