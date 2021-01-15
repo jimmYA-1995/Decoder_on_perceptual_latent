@@ -8,7 +8,9 @@ class CNNDecoder(nn.Module):
         super(CNNDecoder, self).__init__()
 #         self.save_hyperparameters()
         
-        self.embed = nn.Embedding.from_pretrained(latents, freeze=False)
+        self.embed = nn.Embedding.from_pretrained(latents,
+                                                  freeze=False,
+                                                  max_norm=0.19) # manually setting accroding to latents stats
     
         n_ch = [256, 256, 128, 128, 64, 64, 3]
         conv_blocks = []
