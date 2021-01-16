@@ -1,4 +1,5 @@
 import random
+from statistics import mean
 from typing import List
 from argparse import ArgumentParser
 
@@ -123,7 +124,7 @@ class LitSystem(LightningModule):
     def training_step(self, batch, batch_idx):
         indices, latent, target_img = batch
         
-        use_reg = True if self.current_epoch > 0 else False ##
+        use_reg = True if self.current_epoch > 0 and batch_idx%10 == 0 else False ##
         losses = self.shared_step(latent, target_img, indices=indices,reg=use_reg)
         
         total_loss = sum([v for k,v in losses.items() if k in self.losses])
@@ -174,10 +175,10 @@ class LitSystem(LightningModule):
         return metrics
     
     def validation_epoch_end(self, validation_step_outputs):
-        epoch_mse = torch.cat([x['mse'].unsqueeze(0) for x in validation_step_outputs], dim=0).mean()
-        epoch_ssim = torch.cat([x['ssim'].unsqueeze(0) for x in validation_step_outputs], dim=0).mean()
-        epoch_lpips = torch.cat([x['lpips'].unsqueeze(0) for x in validation_step_outputs], dim=0).mean()
-        epoch_tri_neq = torch.cat([x['tri_neq'].unsqueeze(0) for x in validation_step_outputs], dim=0).mean()
+        epoch_mse = mean([x['mse'] for x in validation_step_outputs])
+        epoch_ssim = mean([x['ssim'] for x in validation_step_outputs])
+        epoch_lpips = mean([x['lpips'] for x in validation_step_outputs])
+        epoch_tri_neq = mean([x['tri_neq'] for x in validation_step_outputs])
         if epoch_mse < self.best_mse:
             self.best_mse = epoch_mse
         if epoch_ssim > self.best_ssim:
