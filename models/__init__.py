@@ -1,6 +1,7 @@
-from argparse import ArgumentParser
-from typing import List
 import random
+from typing import List
+from argparse import ArgumentParser
+
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -70,7 +71,6 @@ class LitSystem(LightningModule):
     @staticmethod
     def add_model_specific_args(parent_parser):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
-        # parser.add_argument('--', type=, default=, help='')
         parser.add_argument('--lr', type=float, default=1e-2)
         # parser.add_argument('--optim', type=str, default='Adam')
         # parser.add_argument('--beta_1', type=float, default=0.)
@@ -86,25 +86,23 @@ class LitSystem(LightningModule):
         return self.decoder(latent)
 
     def shared_step(self, latent, target_img, indices=None, reg=False, mode='train'):
-        tri_neq_reg, tri_neq_val = None, None
+        tri_ineq_reg, tri_neq_val = None, None
 
         b, c, h, w = target_img.shape        
         
         l = indices if mode=='train' else latent
         fake_imgs_e = self.decoder(l)
-        ssim_loss = - self.ssim_loss((target_img + 1) / 2., (fake_imgs_e + 1.) / 2.)
         mse_loss = F.mse_loss(target_img, fake_imgs_e)
+        ssim_loss = -self.ssim_loss((target_img + 1) / 2., (fake_imgs_e + 1.) / 2.)
         lpips_loss = self.percept((target_img + 1) / 2., (fake_imgs_e + 1.) / 2.).mean()
-        mse_val = mse_loss.detach()
-        ssim_val = - ssim_loss.detach()
-        lpips_val = lpips_loss.detach()
-        
+
+        losses = dict(mse=mse_loss, ssim=ssim_loss, lpips=lpips_loss)
         if reg:
             _, nz = latent.shape
             latent_l, latent_r = latent.view(2, b//2, nz)
             fake_imgs_l, fake_imgs_r = fake_imgs_e.view(2, b//2, c, h, w)
             fake_imgs_l, fake_imgs_r = fake_imgs_l.detach(), fake_imgs_r.detach()
-            # target_img_l, target_img_r = target_img.view(2, b//2, c, h, w)
+            
             alpha = torch.rand((b//2,1)).type_as(latent)
             interpolated_latents = latent_l * alpha + latent_r * (torch.ones_like(alpha) - alpha)
             fake_imgs_c = self.decoder(interpolated_latents)
@@ -114,46 +112,39 @@ class LitSystem(LightningModule):
             lpips_cr = self.percept((fake_imgs_c + 1) / 2., (fake_imgs_r + 1.) / 2.).mean()
 
             assert (lpips_cl > 0).all() and (lpips_cr > 0).all(), "lpips small than zero"
-            # tri_neq_reg = torch.max(lpips_cl + lpips_cr - lpips_lr, torch.zeros_like(lpips_lr))
-            tri_neq_reg = lpips_cl + lpips_cr
-            tri_neq_reg = tri_neq_reg.mean()
+            tri_ineq_reg = lpips_cl + lpips_cr
+            losses['tri_ineq'] = tri_ineq_reg.mean()            
 
-            tri_neq_val = tri_neq_reg.detach()
-        
-        return mse_loss, ssim_loss, lpips_loss, tri_neq_reg, mse_val, ssim_val, lpips_val, tri_neq_val
+        return losses
 
     def on_train_start(self):
         pass
 
     def training_step(self, batch, batch_idx):
-        # using latent indices on training
         indices, latent, target_img = batch
         
-        use_reg = True if self.current_epoch > 0 else False
-        mse_loss, ssim_loss, lpips_loss, tri_neq_reg, mse_val, ssim_val, lpips_val, tri_neq_val = \
-            self.shared_step(latent, target_img, indices=indices,reg=use_reg)
+        use_reg = True if self.current_epoch > 0 else False ##
+        losses = self.shared_step(latent, target_img, indices=indices,reg=use_reg)
         
-        total_loss = 0.
-        for loss_type in self.losses:
-            total_loss += locals()[f'{loss_type}_loss']
+        total_loss = sum([v for k,v in losses.items() if k in self.losses])
 
-        self.log('Metric/MSE', mse_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log('Metric/SSIM', ssim_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log('Metric/LPIPS', lpips_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log('Metric/MSE', losses['mse'].item(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log('Metric/SSIM', -losses['ssim'].item(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log('Metric/LPIPS', losses['lpips'].item(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
         
         if use_reg:
-            total_loss = total_loss + 0.1 * tri_neq_reg
-            self.log('Metric/tri-neq', tri_neq_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+            total_loss = total_loss + 0.1 * losses['tri_ineq']
+            self.log('Metric/tri-neq', losses['tri_ineq'].item(),
+                     on_step=True, on_epoch=True, prog_bar=True, logger=True)
             
         embed = self.decoder.embed.weight
         norms = torch.linalg.norm(embed, dim=1)
         embed_mean, embed_std = norms.mean().item(), norms.std().item()
+        norms_l1 = torch.linalg.norm(self.decoder.linear1.weight).item()
+        norms_l2 = torch.linalg.norm(self.decoder.linear2.weight).item()
         self.log('Stats/EmbedNorm-Mean', embed_mean, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log('Stats/EmbedNorm-Std', embed_std, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        
-        norms_l1 = torch.linalg.norm(self.decoder.linear1.weight).item()
         self.log('Stats/Linear1Norm', norms_l1, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        norms_l2 = torch.linalg.norm(self.decoder.linear2.weight).item()
         self.log('Stats/Linear2Norm', norms_l2, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         
         return total_loss
@@ -167,13 +158,20 @@ class LitSystem(LightningModule):
             
     def validation_step(self, batch, batch_idx):
         latent, target_img = batch
-        mse_loss, ssim_loss, lpips_loss, tri_neq_reg, mse_val, ssim_val, lpips_val, tri_neq_val = self.shared_step(latent, target_img, reg=True, mode='val')
-        self.log('Metric/Val-MSE', mse_val, on_epoch=True, prog_bar=True, logger=True)
-        self.log('Metric/Val-SSIM', ssim_val, on_epoch=True, prog_bar=True, logger=True)
-        self.log('Metric/Val-LPIPS', lpips_val, on_epoch=True, prog_bar=True, logger=True)
-        self.log('Metric/Val-tri-neq', tri_neq_val, on_epoch=True, prog_bar=True, logger=True)
+        losses = self.shared_step(latent, target_img, reg=True, mode='val')
+        metrics = {
+            'mse': losses['mse'].item(),
+            'ssim': -losses['ssim'].item(),
+            'lpips': losses['lpips'].item(),
+            'tri_neq': losses['tri_ineq'].item()
+        }
+        # TODO: sync_dist=True
+        self.log('Metric/Val-MSE', metrics['mse'], on_epoch=True, prog_bar=True, logger=True)
+        self.log('Metric/Val-SSIM', metrics['ssim'], on_epoch=True, prog_bar=True, logger=True)
+        self.log('Metric/Val-LPIPS', metrics['lpips'], on_epoch=True, prog_bar=True, logger=True)
+        self.log('Metric/Val-tri-neq', metrics['tri_neq'], on_epoch=True, prog_bar=True, logger=True)
         
-        return {'mse': mse_val, 'ssim': ssim_val, 'lpips': lpips_val, 'tri_neq': tri_neq_val}
+        return metrics
     
     def validation_epoch_end(self, validation_step_outputs):
         epoch_mse = torch.cat([x['mse'].unsqueeze(0) for x in validation_step_outputs], dim=0).mean()

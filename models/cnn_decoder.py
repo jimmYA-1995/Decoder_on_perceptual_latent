@@ -6,11 +6,9 @@ class CNNDecoder(nn.Module):
                  norm_type: str = 'batch_norm',
         ):
         super(CNNDecoder, self).__init__()
-#         self.save_hyperparameters()
-                
         self.embed = nn.Embedding.from_pretrained(latents,
                                                   freeze=False,
-                                                  max_norm=0.19) # manually setting accroding to latents stats
+                                                  max_norm=0.19) ## manually setting accroding to latents stats
         self.embed_In = nn.LayerNorm(self.embed.weight.size()[1:], elementwise_affine=False)
         
         n_ch = [256, 256, 128, 128, 64, 64, 3]
