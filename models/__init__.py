@@ -93,20 +93,20 @@ class LitSystem(LightningModule):
         return self.g([latent], skip_mapping=skip_mapping)
 
     def training_step(self, batch, batch_idx, optimizer_idx):
+        use_reg = True
+        (opt_gm, opt_gs, opt_d) = self.optimizers()
         weighted_path_loss_val, r1_loss_val = None, None
         latent, target_img = batch
+        latent, target_img = latent[:32], target_img[:32]
         _, nz = latent.shape
         b, c, h, w = target_img.shape
+        target_img = target_img[:b//2, ...]
         
-        # resample latents
-        mu = latent.mean(0)
-        sigma = cov(latent, rowvar=False)
-        distrib = MultivariateNormal(loc=mu, covariance_matrix=sigma)
-        resample_latents = distrib.rsample(sample_shape=(b))
-
-        use_reg = False #  if self.current_epoch > 3 else False
-        (opt_gm, opt_gs, opt_d) = self.optimizers()
-        
+        # interpolated latents
+        latent_l, latent_r = latent.view(2, b//2, nz)
+        alpha = torch.rand((b//2,1), requires_grad=True).type_as(latent)
+        interpolated_latents = \
+            latent_l * alpha + latent_r * (torch.ones_like(alpha) - alpha)
         # train mapping network
         # TODO: add mixing noise(for style mixing)
         # noise = mixing_noise(b, self.latent_dim, self.mixing_prob, )
@@ -120,7 +120,7 @@ class LitSystem(LightningModule):
         # train D
         requires_grad(self.g, False)
         requires_grad(self.d, True)
-        fake_imgs_e, _ = self.g([resample_latents], skip_mapping=True) # real latent
+        fake_imgs_e, _ = self.g([interpolated_latents], skip_mapping=True) # real latent
         fake_pred = self.d(fake_imgs_e)
         real_pred = self.d(target_img)
         d_loss = logistic_loss(real_pred, fake_pred)
@@ -151,27 +151,27 @@ class LitSystem(LightningModule):
         # ssim_loss = - self.ssim_loss((target_img + 1) / 2., fake_imgs_e)
         # ssim_val = - ssim_loss.detach()
         
-        fake_imgs_i, _ = self.g([resample_latents], skip_mapping=True)
+        fake_imgs_i, _ = self.g([interpolated_latents], skip_mapping=True)
         fake_pred_i = self.d(fake_imgs_i)
         
-        g_loss = nonsaturating_loss(fake_pred_i)
-        g_loss_val = g_loss.detach()
-        opt_gs.zero_grad()
-        self.manual_backward(g_loss, opt_gs)
-        opt_gs.step()
+        g_GANloss = nonsaturating_loss(fake_pred_i)
+        g_loss_val = g_GANloss.detach()
         
         g_reg = batch_idx % self.g_reg_every == 0
         if use_reg and g_reg:
             # TODO: PPL on which latents(real or interpolated)
             path_loss, self.mean_path_length, self.path_lengths = path_regularize(
-                fake_imgs_i, resample_latents, self.mean_path_length
+                fake_imgs_i, interpolated_latents, self.mean_path_length
             )
             weighted_path_loss = self.path_regularize * self.g_reg_every * path_loss
             weighted_path_loss_val = weighted_path_loss.item()
-            opt_gs.zero_grad()
-            self.manual_backward(weighted_path_loss, opt_gs)
-            opt_gs.step()
             
+        opt_gs.zero_grad()
+        total_Gloss = g_GANloss \
+                      if weighted_path_loss is None \
+                      else g_GANloss + weighted_path_loss
+        self.manual_backward(total_Gloss, opt_gs)
+        opt_gs.step()
 
         self.log('Metric/G_GANloss', g_loss_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log('Metric/D-GANloss', d_loss_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
