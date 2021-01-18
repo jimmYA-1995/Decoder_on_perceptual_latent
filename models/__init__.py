@@ -108,12 +108,14 @@ class LitSystem(LightningModule):
             interpolated_latents = latent_l * alpha + latent_r * (torch.ones_like(alpha) - alpha)
             fake_imgs_c = self.decoder(interpolated_latents)
 
-            # lpips_lr = self.percept((fake_imgs_l + 1) / 2., (fake_imgs_r + 1.) / 2.).mean()
-            lpips_cl = self.percept((fake_imgs_c + 1) / 2., (fake_imgs_l + 1.) / 2.).mean()
-            lpips_cr = self.percept((fake_imgs_c + 1) / 2., (fake_imgs_r + 1.) / 2.).mean()
+            lpips_lr = self.percept((fake_imgs_l + 1) / 2., (fake_imgs_r + 1.) / 2.)
+            lpips_cl = self.percept((fake_imgs_c + 1) / 2., (fake_imgs_l + 1.) / 2.)
+            lpips_cr = self.percept((fake_imgs_c + 1) / 2., (fake_imgs_r + 1.) / 2.)
 
-            assert (lpips_cl > 0).all() and (lpips_cr > 0).all(), "lpips small than zero"
-            tri_ineq_reg = lpips_cl + lpips_cr
+            assert (lpips_cl >= 0).all() and (lpips_cr >= 0).all() and (lpips_lr >= 0).all(), "lpips small than zero"
+            if ((lpips_cl + lpips_cr - lpips_lr) >= 0).all():
+                print(f"not follow triangle inequality.\n {lpips_lr[:,0,0,0]}\n {lpips_cr[:,0,0,0]}\n {lpips_cl[:,0,0,0]}")
+            tri_ineq_reg = (lpips_cl + lpips_cr) / lpips_lr - 1
             losses['tri_ineq'] = tri_ineq_reg.mean()            
 
         return losses
@@ -124,7 +126,7 @@ class LitSystem(LightningModule):
     def training_step(self, batch, batch_idx):
         indices, latent, target_img = batch
         
-        use_reg = True if self.current_epoch > 0 and batch_idx%10 == 0 else False ##
+        use_reg = True if self.current_epoch > 10 and batch_idx%10 == 0 else False ##
         losses = self.shared_step(latent, target_img, indices=indices,reg=use_reg)
         
         total_loss = sum([v for k,v in losses.items() if k in self.losses])
