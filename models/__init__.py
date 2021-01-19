@@ -14,7 +14,10 @@ from utils import mixing_noise, cov
 from .models import Generator, Discriminator
 from losses import nonsaturating_loss, path_regularize, logistic_loss, d_r1_loss
 
-
+def sample_data(loader):
+    while True:
+        for batch in loader:
+            yield batch
 
 def requires_grad(model, flag=True):
     for p in model.parameters():
@@ -24,6 +27,7 @@ class LitSystem(LightningModule):
     def __init__(self,
                  log_sample_every,
                  samples,
+                 latent_loader,
                  losses: str = 'G:GAN,ppl;D:GAN,r1',
                  lr: float = 0.2,
                  batch_size: int = 32,
@@ -38,8 +42,9 @@ class LitSystem(LightningModule):
         # https://github.com/PyTorchLightning/pytorch-lightning/issues/4030#issuecomment-708274317
         # register hyparams & metric in the init. and update value later
         self.save_hyperparameters("train_size", "losses", "lr", "batch_size", "latent_dim")
-        
+
         self.latent_dim = latent_dim
+        self.latent_loader = sample_data(latent_loader)
         self.mixing_prob = 0.9
         self.g_reg_every = 4
         self.d_reg_every = 16
@@ -93,20 +98,27 @@ class LitSystem(LightningModule):
         return self.g([latent], skip_mapping=skip_mapping)
 
     def training_step(self, batch, batch_idx, optimizer_idx):
-        use_reg = True
+        use_reg = False
         (opt_gm, opt_gs, opt_d) = self.optimizers()
         weighted_path_loss_val, r1_loss_val = None, None
         latent, target_img = batch
-        latent, target_img = latent[:32], target_img[:32]
         _, nz = latent.shape
         b, c, h, w = target_img.shape
-        target_img = target_img[:b//2, ...]
+        resample_latents = latent
+
+        # resample latents
+        ls = next(self.latent_loader).type_as(latent)
+        with torch.no_grad():
+            ls = ls.reshape(b, b, -1)
+            _, _, V = torch.pca_lowrank(ls, q=b-1)
+            V = V.type_as(latent)
+            V_normalized = V / torch.linalg.norm(V, dim=1, keepdim=True)
+            z = torch.randn((b,1,b-1)).type_as(latent)
+            resample_latents = (V_normalized * z).sum(dim=2)
+
+        resample_latents.requires_grad = True
+        assert resample_latents.shape == latent.shape
         
-        # interpolated latents
-        latent_l, latent_r = latent.view(2, b//2, nz)
-        alpha = torch.rand((b//2,1), requires_grad=True).type_as(latent)
-        interpolated_latents = \
-            latent_l * alpha + latent_r * (torch.ones_like(alpha) - alpha)
         # train mapping network
         # TODO: add mixing noise(for style mixing)
         # noise = mixing_noise(b, self.latent_dim, self.mixing_prob, )
@@ -120,7 +132,7 @@ class LitSystem(LightningModule):
         # train D
         requires_grad(self.g, False)
         requires_grad(self.d, True)
-        fake_imgs_e, _ = self.g([interpolated_latents], skip_mapping=True) # real latent
+        fake_imgs_e, _ = self.g([resample_latents], skip_mapping=True) # real latent
         fake_pred = self.d(fake_imgs_e)
         real_pred = self.d(target_img)
         d_loss = logistic_loss(real_pred, fake_pred)
@@ -151,17 +163,18 @@ class LitSystem(LightningModule):
         # ssim_loss = - self.ssim_loss((target_img + 1) / 2., fake_imgs_e)
         # ssim_val = - ssim_loss.detach()
         
-        fake_imgs_i, _ = self.g([interpolated_latents], skip_mapping=True)
+        fake_imgs_i, _ = self.g([resample_latents], skip_mapping=True)
         fake_pred_i = self.d(fake_imgs_i)
         
         g_GANloss = nonsaturating_loss(fake_pred_i)
         g_loss_val = g_GANloss.detach()
         
         g_reg = batch_idx % self.g_reg_every == 0
+        weighted_path_loss = None
         if use_reg and g_reg:
             # TODO: PPL on which latents(real or interpolated)
             path_loss, self.mean_path_length, self.path_lengths = path_regularize(
-                fake_imgs_i, interpolated_latents, self.mean_path_length
+                fake_imgs_i, resample_latents, self.mean_path_length
             )
             weighted_path_loss = self.path_regularize * self.g_reg_every * path_loss
             weighted_path_loss_val = weighted_path_loss.item()

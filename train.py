@@ -27,8 +27,9 @@ from models import LitSystem
 
 
 class Dataset(torch.utils.data.Dataset):
-    def __init__(self, latents, img_paths, transforms=None):
-        assert len(img_paths) == latents.shape[0]
+    def __init__(self, latents, img_paths=None, transforms=None):
+        if img_paths is not None:
+            assert len(img_paths) == latents.shape[0]
         self.latents = latents
         self.img_paths = img_paths
         self.transforms = transforms
@@ -38,12 +39,14 @@ class Dataset(torch.utils.data.Dataset):
     
     def __getitem__(self, index):
         latent = self.latents[index]
-        target_img = io.imread(self.img_paths[index])
+        if self.img_paths is not None:
+            target_img = io.imread(self.img_paths[index])
         
-        if self.transforms:
-            target_img = self.transforms(target_img)
+            if self.transforms:
+                target_img = self.transforms(target_img)
             
-        return latent, target_img
+            return latent, target_img
+        return latent
 
 def get_dataloaders(root_dir, latent_path, target_dir, data_split,
                     num_workers=1, latent_dim=512, bs_per_gpu=32):
@@ -79,6 +82,9 @@ def get_dataloaders(root_dir, latent_path, target_dir, data_split,
     split_names = ['train', 'val', 'test']
     for split, n_records in zip(split_names, data_split):
         l = latents[idx:idx+n_records]
+        if split == 'train':
+            train_latent = l.clone()
+
         img_paths = img_list[idx:idx+n_records]
         idx += n_records
         
@@ -93,13 +99,23 @@ def get_dataloaders(root_dir, latent_path, target_dir, data_split,
             )
         )
     
-    return dataloaders
+    # latent loader for resampling
+    dataset = Dataset(l, transforms=trfs)
+    latent_loader = DataLoader(
+            dataset,
+            bs_per_gpu**2,
+            num_workers=num_workers,
+            shuffle=True,
+            drop_last=True
+    )
+    
+    return dataloaders, latent_loader
 
 
 def main(args):
     data_split = [args.train_size, args.val_size, args.test_size]
     
-    train_loader, val_loader, test_loader = \
+    (train_loader, val_loader, test_loader), latent_loader = \
         get_dataloaders(args.root_dir, args.latent_path, args.target_dir, data_split,
                         args.num_workers, args.latent_dim, args.bs_per_gpu)
     
@@ -117,6 +133,7 @@ def main(args):
 
     train_system = LitSystem(args.log_sample_every,
                              samples,
+                             latent_loader,
                              lr=args.lr,
                              batch_size=(args.n_gpu*args.bs_per_gpu),
                              latent_dim=args.latent_dim,
