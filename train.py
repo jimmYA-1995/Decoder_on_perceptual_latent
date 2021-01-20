@@ -17,9 +17,10 @@ def main(args):
                         args.num_workers, args.latent_dim, args.bs_per_gpu)
     
     samples = {}
-    indices, _, target_img = next(iter(train_loader))
+    indices, latent, target_img = next(iter(train_loader))
     samples['train'] = {
-        'latents': indices[:args.num_sample],
+        'indices': indices[:args.num_sample],
+        'latents': latent[:args.num_sample],
         'targets': target_img[:args.num_sample]
     }
     latent, target_img = next(iter(test_loader))
@@ -28,11 +29,9 @@ def main(args):
         'targets': target_img[:args.num_sample]
     }
     
-    model = CNNDecoder(train_latents, args.norm_type)
+    model = CNNDecoder(args.train_size, args.latent_dim, latents=None, norm_type=args.norm_type)
     train_system = LitSystem(model,
                              args.log_sample_every,
-                             # args.bs_per_gpu,
-                             # args.train_size,
                              samples,
                              lr=args.lr,
                              lr_scheduler=args.lr_scheduler,

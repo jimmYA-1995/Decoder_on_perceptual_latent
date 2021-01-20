@@ -2,18 +2,25 @@ import torch.nn as nn
 
 class CNNDecoder(nn.Module):
     def __init__(self,
-                 latents,
+                 train_size,
+                 latent_dim,
+                 latents=None,
                  norm_type: str = 'batch_norm',
         ):
         super(CNNDecoder, self).__init__()
-        self.embed = nn.Embedding.from_pretrained(latents,
-                                                  freeze=False,
-                                                  max_norm=0.38) ## manually setting accroding to latents stats
+        
+        if latents is not None:
+            self.replace = True
+            self.embed = nn.Embedding.from_pretrained(latents,
+                                                      freeze=False,
+                                                      max_norm=0.38) ## manually setting accroding to latents stats
+        else:
+            # TODO: set max_norm and scale_gard_by_freq
+            self.embed = nn.Embedding(train_size, latent_dim)
         self.embed_In = nn.LayerNorm(self.embed.weight.size()[1:], elementwise_affine=False)
         
         n_ch = [256, 256, 128, 128, 64, 64, 3]
         conv_blocks = []
-        latent_dim = latents.shape[1]
         self.linear1 = nn.Linear(latent_dim, 4096)
         self.linear1_In = nn.LayerNorm(4096, elementwise_affine=False)
         self.linear2 = nn.Linear(4096, 8*8*256)
@@ -43,17 +50,16 @@ class CNNDecoder(nn.Module):
         self.conv_blocks = nn.ModuleList(conv_blocks)
         self.out = nn.Tanh()
         
-    def forward(self, inputs):
-        if inputs.ndim == 1:
-            # indices
-            latent = self.embed(inputs)
-            latent = self.embed_In(latent)
-        elif inputs.ndim == 2:
-            # latents
-            latent = inputs
-        else:
-            raise ValueError("unknown input dimension")
-            
+    def forward(self, latent, indices=None, replace=False, get_latent=False):
+        if indices is not None:
+            embed_latent = self.embed(indices)
+            embed_latent = self.embed_In(latent)
+            latent = embed_latent if replace \
+                     else embed_latent + latent
+        
+        if get_latent:
+            return latent
+        
         x = self.linear1(latent)
         x = self.linear1_In(x)
         x = self.act(x)

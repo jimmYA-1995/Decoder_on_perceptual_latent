@@ -63,6 +63,7 @@ class LitSystem(LightningModule):
         self.log_sample_every = log_sample_every
         
         # sample
+        self.register_buffer("smpl_indices_train", samples['train']['indices'])
         self.register_buffer("smpl_latent_train", samples['train']['latents'])
         self.register_buffer("smpl_target_train", samples['train']['targets'])
         self.register_buffer("smpl_latent_test", samples['test']['latents'])
@@ -83,16 +84,15 @@ class LitSystem(LightningModule):
         
         return parser
         
-    def forward(self, latent):
-        return self.decoder(latent)
+    def forward(self, latent, indices=None):
+        return self.decoder(latent, indices=indices)
 
-    def shared_step(self, latent, target_img, indices=None, reg=False, mode='train'):
+    def shared_step(self, latent, target_img, indices=None, reg=False):
         tri_ineq_reg, tri_neq_val = None, None
 
         b, c, h, w = target_img.shape        
         
-        l = indices if mode=='train' else latent
-        fake_imgs_e = self.decoder(l)
+        fake_imgs_e = self.decoder(latent, indices=indices)
         mse_loss = F.mse_loss(target_img, fake_imgs_e)
         ssim_loss = -self.ssim_loss((target_img + 1) / 2., (fake_imgs_e + 1.) / 2.)
         lpips_loss = self.percept((target_img + 1) / 2., (fake_imgs_e + 1.) / 2.).mean()
@@ -106,7 +106,7 @@ class LitSystem(LightningModule):
             
             alpha = torch.rand((b//2,1)).type_as(latent)
             interpolated_latents = latent_l * alpha + latent_r * (torch.ones_like(alpha) - alpha)
-            fake_imgs_c = self.decoder(interpolated_latents)
+            fake_imgs_c = self.decoder(interpolated_latents, indices=indices)
 
             lpips_lr = self.percept((fake_imgs_l + 1) / 2., (fake_imgs_r + 1.) / 2.)
             lpips_cl = self.percept((fake_imgs_c + 1) / 2., (fake_imgs_l + 1.) / 2.)
@@ -161,7 +161,7 @@ class LitSystem(LightningModule):
             
     def validation_step(self, batch, batch_idx):
         latent, target_img = batch
-        losses = self.shared_step(latent, target_img, reg=True, mode='val')
+        losses = self.shared_step(latent, target_img, reg=True)
         metrics = {
             'mse': losses['mse'].item(),
             'ssim': -losses['ssim'].item(),
@@ -224,7 +224,8 @@ class LitSystem(LightningModule):
         return optimizer
         
     def log_sample_images(self, mode='train'):
-        sample_fake_imgs = self(getattr(self, f'smpl_latent_{mode}'))
+        indices = getattr(self, f'smpl_indices_{mode}', None)
+        sample_fake_imgs = self(getattr(self, f'smpl_latent_{mode}'), indices=indices)
         stack_imgs = torch.stack([getattr(self, f'smpl_target_{mode}'), sample_fake_imgs], dim=0)
         images = stack_imgs.permute(1,0,2,3,4).reshape(self.n_sample*2, *sample_fake_imgs.shape[1:])
         grid_imgs = torchvision.utils.make_grid(images, normalize=True, range=(-1,1), nrow=4)
@@ -233,7 +234,7 @@ class LitSystem(LightningModule):
     def log_interpolated_images(self):
         N_INTERPOLATION = 10
         with torch.no_grad():
-            latents = self.decoder.embed(self.smpl_latent_train)
+            latents = self.decoder(self.smpl_latent_train, indices=self.smpl_indices_train, get_latent=True)
         
             fake_img_list = []
             for idx in range(0, latents.shape[0], 2):
@@ -245,7 +246,7 @@ class LitSystem(LightningModule):
                 latent_list = [x.unsqueeze(0) for x in latent_list]
                 batch_latent = torch.cat(latent_list, axis=0)
 
-                fake_imgs = self(batch_latent)
+                fake_imgs = self(batch_latent, indices=None)
                 res = fake_imgs.shape[2]
                 fake_imgs = fake_imgs.permute(0,3,2,1)
                 fake_imgs = fake_imgs.reshape(res*batch_latent.shape[0], res, 3)
