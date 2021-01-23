@@ -113,9 +113,11 @@ class LitSystem(LightningModule):
             lpips_cr = self.percept((fake_imgs_c + 1) / 2., (fake_imgs_r + 1.) / 2.)
 
             assert (lpips_cl >= 0).all() and (lpips_cr >= 0).all() and (lpips_lr >= 0).all(), "lpips small than zero"
-            if ((lpips_cl + lpips_cr - lpips_lr) >= 0).all():
-                print(f"not follow triangle inequality.\n {lpips_lr[:,0,0,0]}\n {lpips_cr[:,0,0,0]}\n {lpips_cl[:,0,0,0]}")
-            tri_ineq_reg = (lpips_cl + lpips_cr) / lpips_lr - 1
+            numerator = (lpips_cl + lpips_cr).sqrt()
+            denominator = lpips_lr.sqrt()
+            # if ((numerator - denominator) >= 0).all():
+            #     print(f"not follow triangle inequality.\n {lpips_lr[:,0,0,0]}\n {lpips_cr[:,0,0,0]}\n {lpips_cl[:,0,0,0]}")
+            tri_ineq_reg = numerator / denominator
             losses['tri_ineq'] = tri_ineq_reg.mean()            
 
         return losses
