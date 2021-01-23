@@ -16,7 +16,7 @@ class CNNDecoder(nn.Module):
                                                       max_norm=0.38) ## manually setting accroding to latents stats
         else:
             # TODO: set max_norm and scale_gard_by_freq
-            self.embed = nn.Embedding(train_size, latent_dim)
+            self.embed = nn.Embedding(train_size, latent_dim, max_norm=0.38)
         self.embed_In = nn.LayerNorm(self.embed.weight.size()[1:], elementwise_affine=False)
         
         n_ch = [256, 256, 128, 128, 64, 64, 3]

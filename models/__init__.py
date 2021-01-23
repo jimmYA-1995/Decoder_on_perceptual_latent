@@ -113,15 +113,16 @@ class LitSystem(LightningModule):
             lpips_cr = self.percept((fake_imgs_c + 1) / 2., (fake_imgs_r + 1.) / 2.)
 
             assert (lpips_cl >= 0).all() and (lpips_cr >= 0).all() and (lpips_lr >= 0).all(), "lpips small than zero"
-            if ((lpips_cl + lpips_cr - lpips_lr) >= 0).all():
-                print(f"not follow triangle inequality.\n {lpips_lr[:,0,0,0]}\n {lpips_cr[:,0,0,0]}\n {lpips_cl[:,0,0,0]}")
+            #if ((lpips_cl + lpips_cr - lpips_lr) >= 0).all():
+            #    print(f"not follow triangle inequality.\n {lpips_lr[:,0,0,0]}\n {lpips_cr[:,0,0,0]}\n {lpips_cl[:,0,0,0]}")
             tri_ineq_reg = (lpips_cl + lpips_cr) / lpips_lr - 1
             losses['tri_ineq'] = tri_ineq_reg.mean()            
 
         return losses
 
     def on_train_start(self):
-        pass
+        embed = self.decoder.embed.weight.detach().cpu().numpy()
+        np.save('embed_init', embed)
 
     def training_step(self, batch, batch_idx):
         indices, latent, target_img = batch
