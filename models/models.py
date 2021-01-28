@@ -52,7 +52,6 @@ class Generator(nn.Module):
             randomize_noise=randomize_noise,
             dlatents_size=dlatents_size, architecture='skip'
         )
-        self.out_layer = nn.Tanh()
 
     def forward(self, latents_in, labels_in=None, skip_mapping=False, return_latents=False):
         if skip_mapping:
@@ -69,7 +68,6 @@ class Generator(nn.Module):
                                             dlatent_broadcast=self.num_layers)
 
         images_out = self.synthesis_network(dlatents)
-        images_out = self.out_layer(images_out)
 
         if return_latents:
             return images_out, dlatents
