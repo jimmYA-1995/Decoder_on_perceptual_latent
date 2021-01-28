@@ -68,7 +68,7 @@ class LitSystem(LightningModule):
         self.lr = lr
         
         # loss
-        self.ce_loss = torch.nn.CrossEntropyLoss()
+        # self.ce_loss = torch.nn.CrossEntropyLoss()
         self.mse_loss = nn.MSELoss()
         self.ssim_loss = SSIM()
         # https://github.com/S-aiueo32/lpips-pytorch
@@ -111,7 +111,7 @@ class LitSystem(LightningModule):
 
     def training_step(self, batch, batch_idx, optimizer_idx):
         weighted_path_loss_val, r1_loss_val = None, None
-        use_reg = True #if self.current_epoch > 0 else False
+        use_reg = True if self.current_epoch > 0 else False
         (opt_gm, opt_gs, opt_d) = self.optimizers()
         _, latent, target_img = batch
     
@@ -170,6 +170,9 @@ class LitSystem(LightningModule):
         # fake_imgs_e = torch.sigmoid(fake_imgs_e)
         # ssim_loss = -self.ssim_loss((target_img + 1) / 2., fake_imgs_e)
         # ssim_val = -ssim_loss.detach()
+        # self.log('Metric/MSE', losses['mse'].item(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        # self.log('Metric/SSIM', ssim_val.item(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        # self.log('Metric/LPIPS', losses['lpips'].item(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
         
         # GAN
         fake_imgs_i, _ = self.g([dlatents], skip_mapping=True)
@@ -184,23 +187,27 @@ class LitSystem(LightningModule):
         
         if use_reg and batch_idx % self.g_reg_every == 0:
             dlatents.requires_grad = True
-            fake_imgs_i, dlatents = self.g([dlatents], skip_mapping=True, return_latents=True)
+            bs = dlatents.shape[0]
+            shrink_dlatents = dlatents[:max(1,bs//self.path_batch_shrink)] # for speed
+            fake_imgs_i, ppl_dlatents = self.g([shrink_dlatents], skip_mapping=True, return_latents=True)
             path_loss, self.mean_path_length, self.path_lengths = path_regularize(
-                fake_imgs_i, dlatents, self.mean_path_length
+                fake_imgs_i, ppl_dlatents, self.mean_path_length
             )
             weighted_path_loss = self.path_regularize * self.g_reg_every * path_loss
+            if self.path_batch_shrink:
+                # ???
+                weighted_path_loss += 0 * fake_imgs_i[0, 0, 0, 0]
             weighted_path_loss_val = weighted_path_loss.item()
             opt_gs.zero_grad()
             self.manual_backward(weighted_path_loss, opt_gs)
             opt_gs.step()
             self.logger.experiment.add_scalar('Metric/Greg-PPL', weighted_path_loss_val, batch_idx)
             self.logger.experiment.add_scalar('Metric/G-MeanPath', self.mean_path_length, batch_idx)
-            self.logger.experiment.add_scalar('Metric/G-PathLength', self.path_lengths, batch_idx)
+            self.logger.experiment.add_scalar('Metric/G-PathLength', self.path_lengths.mean(), batch_idx)
 
         self.log('Metric/G_GANloss', g_loss_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log('Metric/D-GANloss', d_loss_val, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         
-        return total_Gloss + d_loss
         # embed = self.decoder.embed.weight
         # norms = torch.linalg.norm(embed, dim=1)
         # embed_mean, embed_std = norms.mean().item(), norms.std().item()
@@ -210,6 +217,8 @@ class LitSystem(LightningModule):
         # self.log('Stats/EmbedNorm-Std', embed_std, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         # self.log('Stats/Linear1Norm', norms_l1, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         # self.log('Stats/Linear2Norm', norms_l2, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        
+        return total_Gloss + d_loss
     
     def training_epoch_end(self, training_step_outputs):
         if self.current_epoch == 0 or \
@@ -252,7 +261,12 @@ class LitSystem(LightningModule):
                                         'val_SSIM': self.best_ssim,
                                         'val_LPIPS': self.best_lpips
                                     })
-
+# manual optimization in latest version of PL is not developed well. Use PL1.1.1 now.
+# https://github.com/PyTorchLightning/pytorch-lightning/issues/5108
+#     @property
+#     def automatic_optimization(self) -> bool:
+#         return False
+    
     def configure_optimizers(self):
         g_reg_ratio = self.g_reg_every / (self.g_reg_every + 1)
         d_reg_ratio = self.d_reg_every / (self.d_reg_every + 1)
