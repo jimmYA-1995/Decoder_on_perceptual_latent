@@ -12,19 +12,14 @@ class CNNDecoder(nn.Module):
         if latents is not None:
             self.replace = True
             self.embed = nn.Embedding.from_pretrained(latents,
-                                                      freeze=False,
-                                                      max_norm=0.38) ## manually setting accroding to latents stats
+                                                      freeze=False)
         else:
-            # TODO: set max_norm and scale_gard_by_freq
             self.embed = nn.Embedding(train_size, latent_dim)
-        self.embed_In = nn.LayerNorm(self.embed.weight.size()[1:], elementwise_affine=False)
         
         n_ch = [256, 256, 128, 128, 64, 64, 3]
         conv_blocks = []
         self.linear1 = nn.Linear(latent_dim, 4096)
-        self.linear1_In = nn.LayerNorm(4096, elementwise_affine=False)
         self.linear2 = nn.Linear(4096, 8*8*256)
-        self.linear2_In = nn.LayerNorm(8*8*256, elementwise_affine=False)
         self.act = nn.LeakyReLU(0.2)
         print(f"using norm: {norm_type}")
 
@@ -53,7 +48,6 @@ class CNNDecoder(nn.Module):
     def forward(self, latent, indices=None, replace=False, get_latent=False):
         if indices is not None:
             embed_latent = self.embed(indices)
-            embed_latent = self.embed_In(latent)
             latent = embed_latent if replace \
                      else embed_latent + latent
         
@@ -61,10 +55,9 @@ class CNNDecoder(nn.Module):
             return latent
         
         x = self.linear1(latent)
-        x = self.linear1_In(x)
         x = self.act(x)
         x = self.linear2(x)
-        x = self.linear2_In(x).view(-1,256,8,8)
+        x = x.view(-1,256,8,8)
         
         for layer in self.conv_blocks:
             x = layer(x)
