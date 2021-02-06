@@ -201,28 +201,28 @@ class LitSystem(LightningModule):
                                     })
         
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.decoder.parameters(), lr=self.lr, betas=(0, 0.99))
+        optimizer = torch.optim.AdamW(self.decoder.parameters(), lr=self.lr, weight_decay=0.03) 
         scheduler = None
-        if self.lr_scheduler != 'None':
-            if self.lr_scheduler == 'ReduceLROnPlateau':
-                scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                    optimizer,
-                    mode='min',
-                    patience=1000,
-                    cooldown=200,
-                    min_lr=1e-4,
-                    verbose=True
-                )
-            elif self.lr_scheduler == 'MultiStepLR':
-                scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[30,110,140], gamma=0.1)
-            else:
-                raise NotImplementedError("Learning rate scheduler type not supported yet")
+        #if self.lr_scheduler != 'None':
+        #    if self.lr_scheduler == 'ReduceLROnPlateau':
+        #        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        #            optimizer,
+        #            mode='min',
+        #            patience=1000,
+        #            cooldown=200,
+        #            min_lr=1e-4,
+        #            verbose=True
+        #        )
+        #    elif self.lr_scheduler == 'MultiStepLR':
+        #        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[30,110,140], gamma=0.1)
+        #    else:
+        #        raise NotImplementedError("Learning rate scheduler type not supported yet")
 
-            return {
-                'optimizer': optimizer,
-                'lr_scheduler': scheduler,
-                'monitor': 'Metric/MSE'
-            }
+        #    return {
+        #        'optimizer': optimizer,
+        #        'lr_scheduler': scheduler,
+        #        'monitor': 'Metric/MSE'
+        #    }
         return optimizer
         
     def log_sample_images(self, mode='train'):
