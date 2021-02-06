@@ -106,7 +106,7 @@ class LitSystem(LightningModule):
             
             alpha = torch.rand((b//2,1)).type_as(latent)
             interpolated_latents = latent_l * alpha + latent_r * (torch.ones_like(alpha) - alpha)
-            fake_imgs_c = self.decoder(interpolated_latents, indices=indices)
+            fake_imgs_c = self.decoder(interpolated_latents, indices=None)
 
             lpips_lr = self.percept((fake_imgs_l + 1) / 2., (fake_imgs_r + 1.) / 2.)
             lpips_cl = self.percept((fake_imgs_c + 1) / 2., (fake_imgs_l + 1.) / 2.)
