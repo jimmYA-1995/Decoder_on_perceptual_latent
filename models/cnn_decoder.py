@@ -10,7 +10,6 @@ class CNNDecoder(nn.Module):
         super(CNNDecoder, self).__init__()
         
         if latents is not None:
-            self.replace = True
             self.embed = nn.Embedding.from_pretrained(latents,
                                                       freeze=False)
         else:

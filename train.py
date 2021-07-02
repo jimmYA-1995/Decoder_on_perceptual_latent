@@ -29,7 +29,7 @@ def main(args):
         'targets': target_img[:args.num_sample]
     }
     
-    model = CNNDecoder(args.train_size, args.latent_dim, latents=train_latents, norm_type=args.norm_type)
+    model = CNNDecoder(args.train_size, args.latent_dim, latents=None, norm_type=args.norm_type)
     train_system = LitSystem(model,
                              args.log_sample_every,
                              samples,
